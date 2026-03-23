@@ -1,0 +1,61 @@
+[
+  {
+    "id": "4617bc1c-f092-4391-8e97-e55d791a0dcb",
+    "username": "admin",
+    "nickname": "系统管理员",
+    "password": "81d5c3dca35a3510b8601bbc879e201415b1753f6f78afc606f156fe8c25b24e2c2a90b156cd66bccdba04e01733a62e9aa0458e9e101db3786e3e821594b57d",
+    "salt": "b7e4e3c6456a74b890a59b91066c6909",
+    "displayPassword": "admin123",
+    "avatar": "",
+    "role": "admin",
+    "mentalHealthStatus": "未评估",
+    "mentalHealthNote": "",
+    "createdAt": "2026-03-23T09:41:05.928Z"
+  },
+  {
+    "id": "e96dbe92-6606-4657-a045-2116c9919f2e",
+    "username": "小飞飞",
+    "nickname": "菲菲",
+    "password": "c8df527bd418e21a2591db75e55250d5fe2c53244146d2654c209508e4c53c7649c84e0c1a13385ee2b85edd093a044c027b71c7049f6667b9064961df3471ca",
+    "salt": "cccc59b7c48ffb3b3e24dcdf5a2e26a9",
+    "avatar": "",
+    "createdAt": "2026-03-23T09:00:45.065Z",
+    "mentalHealthStatus": "状态良好",
+    "mentalHealthNote": ""
+  },
+  {
+    "id": "570e6dce-f458-4cf3-8e6f-eb3626d6cfc2",
+    "username": "小姐姐",
+    "nickname": "小姐姐",
+    "password": "df20c9d289dfea61b86756fa53db65aef42676e1d3f7bfb390705711070e9f71dc7e78383077b9752412f100b7ddb327d8788a67ac4d0dc1acd994616a98656c",
+    "salt": "64fad147af7714b5060811b3a4cbd1de",
+    "avatar": "",
+    "createdAt": "2026-03-23T09:15:38.737Z",
+    "mentalHealthStatus": "轻度焦虑",
+    "mentalHealthNote": ""
+  },
+  {
+    "id": "a19dc382-9429-475d-ad9e-a17bf28c22ae",
+    "username": "001",
+    "nickname": "001",
+    "password": "b6eb26f9b167934f3ccb9223a2077f1e30db11c8d848a78140ec3a23f591e6c85bc4d0d3a8b5ef03a4579fabf2a523de4372fb321295e316921525e97c4df164",
+    "salt": "e3159a35714e09f177a1a3c2a52ef23e",
+    "avatar": "",
+    "createdAt": "2026-03-23T09:21:43.648Z",
+    "mentalHealthStatus": "中度焦虑",
+    "mentalHealthNote": ""
+  },
+  {
+    "id": "5ef181ca-9484-426d-866e-22987c4f2c36",
+    "username": "002",
+    "nickname": "002",
+    "password": "b7ae7cd194b129d95361be38d9b7f39b3b6ddc499db0cb9d6102bc395b7b3228fdd565936105f9f4149c709815df27b520a6b3d7e81322025802621aaa426728",
+    "salt": "c3aa27ddf1d0ca26b6f143448a8e60a3",
+    "displayPassword": "123456",
+    "avatar": "",
+    "role": "user",
+    "mentalHealthStatus": "需要关注",
+    "mentalHealthNote": "",
+    "createdAt": "2026-03-23T09:48:29.921Z"
+  }
+]
