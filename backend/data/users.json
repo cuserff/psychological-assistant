@@ -6,7 +6,7 @@
     "password": "81d5c3dca35a3510b8601bbc879e201415b1753f6f78afc606f156fe8c25b24e2c2a90b156cd66bccdba04e01733a62e9aa0458e9e101db3786e3e821594b57d",
     "salt": "b7e4e3c6456a74b890a59b91066c6909",
     "displayPassword": "admin123",
-    "avatar": "",
+    "avatar": "girl",
     "role": "admin",
     "mentalHealthStatus": "未评估",
     "mentalHealthNote": "",
@@ -20,7 +20,7 @@
     "salt": "cccc59b7c48ffb3b3e24dcdf5a2e26a9",
     "avatar": "",
     "createdAt": "2026-03-23T09:00:45.065Z",
-    "mentalHealthStatus": "状态良好",
+    "mentalHealthStatus": "轻度焦虑",
     "mentalHealthNote": "",
     "displayPassword": ""
   },
@@ -42,7 +42,7 @@
     "nickname": "001",
     "password": "4355615eaf61e509b00b6479d18b89abd3f0b01469679f971cf884ac4cd2cbfede8f0d516fd246f17699b0ebdaa575f8e64b8add79940cee591eb045fcf4b819",
     "salt": "d5ba2e2366aadea083d6409b8cc6dcfc",
-    "avatar": "",
+    "avatar": "boy",
     "createdAt": "2026-03-23T09:21:43.648Z",
     "mentalHealthStatus": "中度焦虑",
     "mentalHealthNote": "",
@@ -60,5 +60,18 @@
     "mentalHealthStatus": "需要关注",
     "mentalHealthNote": "",
     "createdAt": "2026-03-23T09:48:29.921Z"
+  },
+  {
+    "id": "9fa35cc9-8ec7-43df-aec9-45f8d428aab4",
+    "username": "003",
+    "nickname": "研",
+    "password": "74961b3df6532473f9208bcc99bcb280206638b557011d80a58fcb98222438bb18e9815e304ac8dde5dbed5945229e4d6255a29089543bdc31d48dc3d7b406af",
+    "salt": "4583a920a70bf0d4aa950dd81fddaf1c",
+    "displayPassword": "123456",
+    "avatar": "",
+    "role": "user",
+    "mentalHealthStatus": "未评估",
+    "mentalHealthNote": "",
+    "createdAt": "2026-03-25T15:16:49.097Z"
   }
 ]

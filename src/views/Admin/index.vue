@@ -3,6 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Delete, EditPen } from '@element-plus/icons-vue'
 import { getAdminUsersApi, updateMentalStatusApi, deleteAdminUserApi } from '../../api/user'
+import avatarBoy from '../../assets/images/avatar-boy.svg'
+import avatarGirl from '../../assets/images/avatar-girl.svg'
+
+const avatarMap = { boy: avatarBoy, girl: avatarGirl }
 
 const userList = ref([])
 const tableLoading = ref(false)
@@ -147,9 +151,11 @@ onMounted(() => {
         <el-table-column label="用户名" prop="username" min-width="120">
           <template #default="{ row }">
             <div class="username-cell">
-              <el-avatar :size="28" class="user-avatar">
-                {{ row.nickname?.charAt(0) || row.username?.charAt(0) || 'U' }}
-              </el-avatar>
+              <img
+                :src="avatarMap[row.avatar] || avatarMap['boy']"
+                class="user-avatar-img"
+                alt="头像"
+              />
               <span>{{ row.username }}</span>
               <el-tag v-if="row.role === 'admin'" type="danger" size="small">管理员</el-tag>
             </div>
@@ -303,10 +309,12 @@ onMounted(() => {
   gap: 8px;
 }
 
-.user-avatar {
-  background-color: #0284c7;
-  font-size: 13px;
-  font-weight: 600;
+.user-avatar-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid #e0e0e0;
   flex-shrink: 0;
 }
 

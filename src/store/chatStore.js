@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getItem, setItem } from '../utils/storage'
+import { getItem, setItem, getToken } from '../utils/storage'
 import { useUserStore } from './userStore'
 import { fetchSessions as apiFetchSessions, saveSessionsToServer, deleteSessionFromServer } from '../api/chat'
 
@@ -22,7 +22,7 @@ import { fetchSessions as apiFetchSessions, saveSessionsToServer, deleteSessionF
  */
 
 const STORAGE_KEY_PREFIX = 'mental_health_chat_'
-const WELCOME_TEXT = '你好！我是你的智能心理助手，有什么可以帮助你的吗？'
+const WELCOME_TEXT = '你好！我是你的智能心理助手小愈，有什么可以帮助你的吗？'
 
 export const useChatStore = defineStore('chat', () => {
   // ==================== 状态 ====================
@@ -32,6 +32,8 @@ export const useChatStore = defineStore('chat', () => {
   /** @type {import('vue').Ref<string|null>} */
   const activeSessionId = ref(null)
   const isGenerating = ref(false)
+  /** @type {import('vue').Ref<AbortController|null>} */
+  const currentAbortController = ref(null)
 
   // ==================== 计算属性 ====================
 
@@ -51,8 +53,25 @@ export const useChatStore = defineStore('chat', () => {
    */
   function getStorageKey() {
     const userStore = useUserStore()
-    const userId = userStore.userInfo?.id
-    return userId ? `${STORAGE_KEY_PREFIX}${userId}` : null
+    const memoryUserId = userStore.userInfo?.id
+    const storedUserId = getItem('current_user_id')
+    const storedUser = getItem('current_user')
+
+    const resolvedUserId =
+      memoryUserId
+      || storedUserId
+      || storedUser?.id
+      || storedUser?.userId
+      || storedUser?._id
+      || storedUser?.username
+      || storedUser?.userName
+      || storedUser?.email
+
+    if (resolvedUserId) return `${STORAGE_KEY_PREFIX}${resolvedUserId}`
+
+    // 最后才用 token 隔离（理论上不应走到这里）
+    const token = getToken()
+    return token ? `${STORAGE_KEY_PREFIX}token_${token}` : null
   }
 
   // ==================== 持久化 ====================
@@ -217,12 +236,14 @@ export const useChatStore = defineStore('chat', () => {
    * 流式结束后的收尾操作：若 assistant 回复为空则填入错误提示，然后持久化
    * @param {number} msgIndex 消息索引
    */
-  function finalizeReply(msgIndex) {
+  function finalizeReply(msgIndex, { aborted = false } = {}) {
     const session = activeSession.value
     if (!session || msgIndex < 0) return
 
     if (!session.messages[msgIndex].content) {
-      session.messages[msgIndex].content = '抱歉，回复生成失败，请稍后重试。'
+      session.messages[msgIndex].content = aborted
+        ? '已停止生成。'
+        : '抱歉，回复生成失败，请稍后重试。'
     }
 
     session.updatedAt = new Date().toISOString()
@@ -233,9 +254,24 @@ export const useChatStore = defineStore('chat', () => {
    * 清空内存中的会话状态（用于用户登出，不影响 localStorage 中已持久化的数据）
    */
   function resetStore() {
+    // 组件卸载/登出场景：主动取消任何进行中的流式请求
+    currentAbortController.value?.abort()
     sessions.value = []
     activeSessionId.value = null
     isGenerating.value = false
+    currentAbortController.value = null
+  }
+
+  function setCurrentAbortController(controller) {
+    currentAbortController.value = controller
+  }
+
+  function clearCurrentAbortController() {
+    currentAbortController.value = null
+  }
+
+  function stopGeneration() {
+    currentAbortController.value?.abort()
   }
 
   return {
@@ -259,6 +295,10 @@ export const useChatStore = defineStore('chat', () => {
     createAssistantPlaceholder,
     appendAssistantDelta,
     finalizeReply,
+    // 取消生成（Stop 按钮）
+    setCurrentAbortController,
+    clearCurrentAbortController,
+    stopGeneration,
     // 生命周期
     resetStore
   }

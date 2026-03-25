@@ -4,13 +4,15 @@ import { useChatStore } from '../../store/chatStore'
 import { useUserStore } from '../../store/userStore'
 import { useChat } from '../../composables/useChat'
 import { renderMarkdown } from '../../utils/markdown'
+import VoiceRecorder from '../../components/input/VoiceRecorder.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
   Refresh,
   Plus,
   Delete,
-  ChatLineSquare
+  ChatLineSquare,
+  Close
 } from '@element-plus/icons-vue'
 
 const chatStore = useChatStore()
@@ -53,6 +55,11 @@ async function handleSend() {
   if (!content.trim() || chatStore.isGenerating) return
   inputMessage.value = ''
 
+  // 无活跃会话时自动创建
+  if (!chatStore.activeSession) {
+    chatStore.createSession()
+  }
+
   try {
     await sendMessage(content)
   } catch {
@@ -62,9 +69,29 @@ async function handleSend() {
   }
 }
 
-function handleNewSession() {
-  chatStore.createSession()
+function handleStop() {
+  chatStore.stopGeneration()
   scrollToBottom()
+}
+
+// 快捷操作：自动创建会话并发送预设消息
+async function handleQuickAction(text) {
+  if (chatStore.isGenerating) return
+  if (!chatStore.activeSession) {
+    chatStore.createSession()
+  }
+  try {
+    await sendMessage(text)
+  } catch {
+    ElMessage.error('获取 AI 回复失败，请稍后重试')
+  } finally {
+    scrollToBottom()
+  }
+}
+
+function handleNewSession() {
+  // 不立即创建会话，只取消选中，显示欢迎页
+  chatStore.activeSessionId = null
 }
 
 function handleSwitchSession(sessionId) {
@@ -83,6 +110,11 @@ async function handleDeleteSession(sessionId) {
     return
   }
   chatStore.deleteSession(sessionId)
+}
+
+// 语音识别结果填入输入框
+function handleVoiceResult(text) {
+  inputMessage.value += text
 }
 
 function formatTime(isoString) {
@@ -168,33 +200,66 @@ function formatTime(isoString) {
           </div>
         </div>
 
-        <!-- 无活跃会话时的引导 -->
-        <div v-if="!chatStore.activeSession" class="chat-empty-guide">
-          <el-icon :size="48" color="#cbd5e1"><ChatDotRound /></el-icon>
-          <p>点击左侧「新对话」开始聊天</p>
+        <!-- 无活跃会话时的欢迎界面 -->
+        <div v-if="!chatStore.activeSession" class="welcome-page">
+          <div class="welcome-greeting">你好，{{ userStore.userInfo?.nickname || '朋友' }}</div>
+          <div class="welcome-title">需要我为你做些什么？</div>
+          <div class="quick-actions">
+            <div class="quick-action-item" @click="handleQuickAction('我最近心情不太好，想找人聊聊')">
+              <span class="quick-action-icon">💬</span>
+              <span>心理咨询</span>
+            </div>
+            <div class="quick-action-item" @click="handleQuickAction('给我讲个轻松有趣的小故事，帮我放松一下')">
+              <span class="quick-action-icon">☀️</span>
+              <span>轻松一下</span>
+            </div>
+            <div class="quick-action-item" @click="handleQuickAction('我想记录一下今天的情绪和感受')">
+              <span class="quick-action-icon">📝</span>
+              <span>情绪记录</span>
+            </div>
+            <div class="quick-action-item" @click="handleQuickAction('带我做一次简短的正念冥想练习')">
+              <span class="quick-action-icon">🧘</span>
+              <span>正念冥想</span>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- 输入区域 -->
       <div class="input-area">
-        <el-input
-          v-model="inputMessage"
-          placeholder="请输入消息..."
-          @keyup.enter="handleSend"
-          :disabled="chatStore.isGenerating || !chatStore.activeSession"
-          type="textarea"
-          :rows="3"
-          resize="none"
-        />
-        <el-button
-          type="primary"
-          @click="handleSend"
-          :disabled="chatStore.isGenerating || !inputMessage.trim() || !chatStore.activeSession"
-          :icon="chatStore.isGenerating ? Refresh : ChatDotRound"
-          :loading="chatStore.isGenerating"
-        >
-          {{ chatStore.isGenerating ? '生成中...' : '发送' }}
-        </el-button>
+        <div class="input-row">
+          <el-input
+            v-model="inputMessage"
+            placeholder="问问小愈..."
+            @keyup.enter="handleSend"
+            :disabled="chatStore.isGenerating"
+            type="textarea"
+            :rows="3"
+            resize="none"
+          />
+          <div class="input-actions">
+            <VoiceRecorder @result="handleVoiceResult" />
+            <el-button
+              class="send-btn"
+              type="primary"
+              @click="handleSend"
+              :disabled="chatStore.isGenerating || !inputMessage.trim()"
+              :icon="chatStore.isGenerating ? Refresh : ChatDotRound"
+              :loading="chatStore.isGenerating"
+            >
+              {{ chatStore.isGenerating ? '生成中...' : '发送' }}
+            </el-button>
+            <el-button
+              v-if="chatStore.isGenerating"
+              class="stop-btn"
+              type="danger"
+              @click="handleStop"
+              :icon="Close"
+            >
+              停止
+            </el-button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -330,15 +395,62 @@ function formatTime(isoString) {
   background-color: #fafafa;
 }
 
-.chat-empty-guide {
+/* ==================== 欢迎界面 ==================== */
+
+.welcome-page {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  gap: 16px;
-  color: #94a3b8;
-  font-size: 15px;
+  gap: 12px;
+  animation: fadeIn 0.5s ease-in;
+}
+
+.welcome-greeting {
+  font-size: 16px;
+  color: #64748b;
+}
+
+.welcome-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 32px;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.quick-action-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background-color: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #334155;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.quick-action-item:hover {
+  background-color: #f0f9ff;
+  border-color: #0284c7;
+  color: #0284c7;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.12);
+}
+
+.quick-action-icon {
+  font-size: 18px;
 }
 
 .message-item {
@@ -424,9 +536,19 @@ function formatTime(isoString) {
 /* ==================== 输入区 ==================== */
 
 .input-area {
-  padding: 20px;
+  padding: 16px 20px;
   background-color: #fff;
   border-top: 1px solid #e8e8e8;
+}
+
+.input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.input-row :deep(.el-textarea) {
+  flex: 1;
 }
 
 .input-area :deep(.el-textarea__inner) {
@@ -436,21 +558,41 @@ function formatTime(isoString) {
   font-size: 15px;
 }
 
-.input-area :deep(.el-button) {
-  margin-top: 12px;
-  border-radius: 12px;
-  padding: 8px 24px;
-  font-size: 15px;
-  background-color: #0284c7;
-  border: none;
+.input-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.input-area :deep(.el-button:hover) {
+.input-area :deep(.send-btn) {
+  border-radius: 12px;
+  padding: 8px 20px;
+  font-size: 14px;
+  background-color: #0284c7;
+  border: none;
+  margin: 0;
+}
+
+.input-area :deep(.send-btn:hover) {
   background-color: #0ea5e9;
 }
 
-.input-area :deep(.el-button.is-disabled) {
+.input-area :deep(.send-btn.is-disabled) {
   background-color: #93c5fd;
   cursor: not-allowed;
+}
+
+.input-area :deep(.stop-btn) {
+  border-radius: 12px;
+  padding: 8px 20px;
+  font-size: 14px;
+  background-color: #ef4444;
+  border: none;
+}
+
+.input-area :deep(.stop-btn:hover) {
+  background-color: #dc2626;
 }
 </style>

@@ -7,7 +7,7 @@ import { getToken } from '../utils/storage'
  * @param {Array<{role: string, content: string}>} messages 完整的多轮对话消息列表
  * @returns {Promise<Response>}
  */
-export function sendChatRequest(messages) {
+export function sendChatRequest(messages, { signal } = {}) {
   const token = getToken()
   const headers = { 'Content-Type': 'application/json' }
   if (token) {
@@ -17,7 +17,8 @@ export function sendChatRequest(messages) {
   return fetch(`${BASE_URL}/api/chat`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ messages })
+    body: JSON.stringify({ messages }),
+    signal
   })
 }
 

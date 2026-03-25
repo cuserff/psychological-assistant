@@ -17,12 +17,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'mental-health-assistant-jwt-secret
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
+const CHECKINS_DIR = path.join(DATA_DIR, 'checkins');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 if (!fs.existsSync(CHATS_DIR)) {
   fs.mkdirSync(CHATS_DIR, { recursive: true });
+}
+if (!fs.existsSync(CHECKINS_DIR)) {
+  fs.mkdirSync(CHECKINS_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, '[]', 'utf-8');
@@ -57,6 +61,19 @@ function readUserChats(userId) {
 function writeUserChats(userId, sessions) {
   const filePath = path.join(CHATS_DIR, `${userId}.json`);
   fs.writeFileSync(filePath, JSON.stringify(sessions, null, 2), 'utf-8');
+}
+
+// 读取指定用户的情绪打卡记录，文件不存在则返回空数组
+function readUserCheckins(userId) {
+  const filePath = path.join(CHECKINS_DIR, `${userId}.json`);
+  if (!fs.existsSync(filePath)) return [];
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+// 写入指定用户的情绪打卡记录
+function writeUserCheckins(userId, checkins) {
+  const filePath = path.join(CHECKINS_DIR, `${userId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(checkins, null, 2), 'utf-8');
 }
 
 function hashPassword(password, salt) {
@@ -383,6 +400,117 @@ app.delete('/api/chat/sessions/:sessionId', authMiddleware, (req, res) => {
 
   writeUserChats(req.user.id, filtered);
   res.json({ code: 200, message: '会话已删除' });
+});
+
+// ==================== 情绪打卡接口 ====================
+
+// 获取当前用户的所有打卡记录
+app.get('/api/checkin/records', authMiddleware, (req, res) => {
+  const checkins = readUserCheckins(req.user.id);
+  res.json({ code: 200, message: '获取成功', data: checkins });
+});
+
+// 提交或更新打卡（同一天只保留一条，重复提交则覆盖）
+app.post('/api/checkin', authMiddleware, (req, res) => {
+  const { date, mood, note } = req.body;
+
+  // 参数校验
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ code: 400, message: '日期格式无效，需要 YYYY-MM-DD' });
+  }
+  if (!Number.isInteger(mood) || mood < 1 || mood > 5) {
+    return res.status(400).json({ code: 400, message: '情绪等级必须为 1-5 的整数' });
+  }
+  if (note !== undefined && typeof note !== 'string') {
+    return res.status(400).json({ code: 400, message: '备注必须为字符串' });
+  }
+  if (note && note.length > 200) {
+    return res.status(400).json({ code: 400, message: '备注长度不能超过 200 个字符' });
+  }
+
+  // 不允许打卡未来日期
+  const today = new Date().toISOString().slice(0, 10);
+  if (date > today) {
+    return res.status(400).json({ code: 400, message: '不能打卡未来日期' });
+  }
+
+  const checkins = readUserCheckins(req.user.id);
+  const existingIndex = checkins.findIndex(c => c.date === date);
+  const record = {
+    date,
+    mood,
+    note: note || '',
+    createdAt: new Date().toISOString()
+  };
+
+  if (existingIndex !== -1) {
+    // 更新已有记录
+    checkins[existingIndex] = record;
+  } else {
+    // 新增记录
+    checkins.push(record);
+  }
+
+  // 按日期倒序排列，便于查询
+  checkins.sort((a, b) => b.date.localeCompare(a.date));
+  writeUserCheckins(req.user.id, checkins);
+
+  res.json({ code: 200, message: '打卡成功', data: record });
+});
+
+// 获取个人中心统计数据（聊天统计 + 打卡统计，一次性返回）
+app.get('/api/user/stats', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+
+  // ---- 聊天相关统计 ----
+  const sessions = readUserChats(userId);
+  const sessionCount = sessions.length;
+
+  // 消息总条数
+  const messageCount = sessions.reduce((sum, s) => sum + (s.messages?.length || 0), 0);
+
+  // 累计对话天数：从所有消息的 timestamp 提取日期去重
+  const chatDateSet = new Set();
+  sessions.forEach(s => {
+    (s.messages || []).forEach(m => {
+      if (m.timestamp) {
+        chatDateSet.add(m.timestamp.slice(0, 10));
+      }
+    });
+  });
+  const chatDays = chatDateSet.size;
+
+  // ---- 打卡相关统计 ----
+  const checkins = readUserCheckins(userId);
+  const checkinDays = checkins.length;
+
+  // 连续打卡天数：从今天向前数连续的天数
+  const today = new Date().toISOString().slice(0, 10);
+  const checkinDateSet = new Set(checkins.map(c => c.date));
+  let streakDays = 0;
+  const cursor = new Date(today);
+  while (checkinDateSet.has(cursor.toISOString().slice(0, 10))) {
+    streakDays++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  // 近 7 天平均情绪指数
+  const last7Days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    last7Days.push(d.toISOString().slice(0, 10));
+  }
+  const last7Checkins = checkins.filter(c => last7Days.includes(c.date));
+  const avgMood7d = last7Checkins.length > 0
+    ? +(last7Checkins.reduce((sum, c) => sum + c.mood, 0) / last7Checkins.length).toFixed(1)
+    : null;
+
+  res.json({
+    code: 200,
+    message: '获取成功',
+    data: { chatDays, sessionCount, messageCount, checkinDays, streakDays, avgMood7d }
+  });
 });
 
 // ==================== AI 对话接口 ====================

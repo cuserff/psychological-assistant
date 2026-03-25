@@ -43,18 +43,30 @@ export function useChat(options = {}) {
 
     // 5. 标记生成中
     chatStore.isGenerating = true
+    const abortController = new AbortController()
+    chatStore.setCurrentAbortController(abortController)
+
+    let aborted = false
 
     try {
       // 6. 流式请求，增量文本通过回调写入 Store
       await streamLLMResponse(contextMessages, {
         onDelta(delta) {
           chatStore.appendAssistantDelta(assistantMsgIndex, delta)
-        }
+        },
+        signal: abortController.signal
       })
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        aborted = true
+      } else {
+        throw error
+      }
     } finally {
-      // 7. 无论成功或失败，收尾：补错误提示 + 持久化 + 解除生成锁
-      chatStore.finalizeReply(assistantMsgIndex)
+      // 7. 无论成功/失败/取消，收尾：补文本 + 持久化 + 解除生成锁
+      chatStore.finalizeReply(assistantMsgIndex, { aborted })
       chatStore.isGenerating = false
+      chatStore.clearCurrentAbortController()
     }
   }
 

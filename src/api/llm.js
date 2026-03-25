@@ -137,8 +137,11 @@ export function buildContextMessages(allMessages, options = {}) {
  * @param {function(Error): void}   [callbacks.onError]    出错时调用（之后仍会 throw）
  * @returns {Promise<void>}
  */
-export async function streamLLMResponse(contextMessages, { onDelta, onComplete, onError } = {}) {
-  const response = await sendChatRequest(contextMessages)
+export async function streamLLMResponse(
+  contextMessages,
+  { onDelta, onComplete, onError, signal } = {}
+) {
+  const response = await sendChatRequest(contextMessages, { signal })
 
   if (!response.ok) {
     const errorMsg = `LLM API 请求失败 (HTTP ${response.status})`
@@ -165,7 +168,10 @@ export async function streamLLMResponse(contextMessages, { onDelta, onComplete, 
     }
     onComplete?.()
   } catch (error) {
-    onError?.(error)
+    // 用户主动停止时，避免抛出错误提示
+    if (error?.name !== 'AbortError') {
+      onError?.(error)
+    }
     throw error
   }
 }
