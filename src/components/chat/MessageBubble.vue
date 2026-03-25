@@ -1,5 +1,7 @@
 <script setup>
-// 单条消息气泡（后续集成 Markdown 与代码高亮）
+// 单条消息气泡（AI 消息渲染 Markdown，用户消息纯文本）
+import { renderMarkdown } from '../../utils/markdown'
+
 defineProps({
   role: {
     type: String,
@@ -14,9 +16,21 @@ defineProps({
 
 <template>
   <div :class="['message-bubble', role === 'assistant' ? 'ai-bubble' : 'user-bubble']">
-    <div class="bubble-content">{{ content }}</div>
+    <!-- AI 消息：渲染 Markdown -->
+    <div
+      v-if="role === 'assistant'"
+      class="bubble-content markdown-body"
+      v-html="renderMarkdown(content)"
+    />
+    <!-- 用户消息：纯文本 -->
+    <div v-else class="bubble-content">{{ content }}</div>
   </div>
 </template>
+
+<style>
+/* 引入 Markdown 样式（非 scoped） */
+@import '../../assets/styles/markdown.css';
+</style>
 
 <style scoped>
 .message-bubble {

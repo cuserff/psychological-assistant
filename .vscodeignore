@@ -1,0 +1,51 @@
+# .vscodeignore - 告诉 Claude 不要读取这些文件
+
+# 依赖包 (绝对不能让 AI 读，文件太多会卡死)
+node_modules/
+.pnpm-store/
+
+# 打包输出目录 (AI 不需要看编译后的产物)
+dist/
+build/
+out/
+
+# 环境变量 (保护你的敏感配置、API 密钥等)
+.env
+.env.*
+*.local
+
+# 日志文件
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 编辑器/系统相关文件
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 锁文件 (对理解业务逻辑毫无帮助)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 媒体文件/字体 (AI 读不懂二进制文件)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.eot
+
+# 可选：如果你有不需要 AI 介入的纯静态资源文件夹
+public/

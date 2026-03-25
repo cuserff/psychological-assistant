@@ -16,9 +16,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'mental-health-assistant-jwt-secret
 
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CHATS_DIR = path.join(DATA_DIR, 'chats');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(CHATS_DIR)) {
+  fs.mkdirSync(CHATS_DIR, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, '[]', 'utf-8');
@@ -40,6 +44,19 @@ function readUsers() {
 
 function writeUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+}
+
+// 读取指定用户的聊天记录，文件不存在则返回空数组
+function readUserChats(userId) {
+  const filePath = path.join(CHATS_DIR, `${userId}.json`);
+  if (!fs.existsSync(filePath)) return [];
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+// 写入指定用户的聊天记录
+function writeUserChats(userId, sessions) {
+  const filePath = path.join(CHATS_DIR, `${userId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(sessions, null, 2), 'utf-8');
 }
 
 function hashPassword(password, salt) {
@@ -332,6 +349,40 @@ app.delete('/api/admin/users/:userId', adminMiddleware, (req, res) => {
   writeUsers(users);
 
   res.json({ code: 200, message: '用户已删除' });
+});
+
+// ==================== 聊天会话持久化接口 ====================
+
+// 获取当前用户的所有会话
+app.get('/api/chat/sessions', authMiddleware, (req, res) => {
+  const sessions = readUserChats(req.user.id);
+  res.json({ code: 200, message: '获取成功', data: sessions });
+});
+
+// 全量保存当前用户的所有会话
+app.put('/api/chat/sessions', authMiddleware, (req, res) => {
+  const { sessions } = req.body;
+
+  if (!Array.isArray(sessions)) {
+    return res.status(400).json({ code: 400, message: 'sessions 必须是数组' });
+  }
+
+  writeUserChats(req.user.id, sessions);
+  res.json({ code: 200, message: '保存成功' });
+});
+
+// 删除指定会话
+app.delete('/api/chat/sessions/:sessionId', authMiddleware, (req, res) => {
+  const { sessionId } = req.params;
+  const sessions = readUserChats(req.user.id);
+  const filtered = sessions.filter(s => s.id !== sessionId);
+
+  if (filtered.length === sessions.length) {
+    return res.status(404).json({ code: 404, message: '会话不存在' });
+  }
+
+  writeUserChats(req.user.id, filtered);
+  res.json({ code: 200, message: '会话已删除' });
 });
 
 // ==================== AI 对话接口 ====================

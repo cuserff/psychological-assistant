@@ -3,6 +3,7 @@ import { ref, watch, nextTick, onMounted } from 'vue'
 import { useChatStore } from '../../store/chatStore'
 import { useUserStore } from '../../store/userStore'
 import { useChat } from '../../composables/useChat'
+import { renderMarkdown } from '../../utils/markdown'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
@@ -145,7 +146,14 @@ function formatTime(isoString) {
           :key="message.id"
           :class="['message-item', message.role === 'assistant' ? 'ai-message' : 'user-message']"
         >
-          <div class="message-content">{{ message.content }}</div>
+          <!-- AI 消息：渲染 Markdown -->
+          <div
+            v-if="message.role === 'assistant'"
+            class="message-content markdown-body"
+            v-html="renderMarkdown(message.content)"
+          />
+          <!-- 用户消息：纯文本 -->
+          <div v-else class="message-content">{{ message.content }}</div>
         </div>
 
         <!-- 正在思考指示器 -->
@@ -191,6 +199,11 @@ function formatTime(isoString) {
     </div>
   </div>
 </template>
+
+<style>
+/* 引入 Markdown 样式（非 scoped，让 v-html 内容能命中） */
+@import '../../assets/styles/markdown.css';
+</style>
 
 <style scoped>
 .chat-page {
@@ -389,6 +402,10 @@ function formatTime(isoString) {
   font-size: 15px;
   line-height: 1.5;
   word-wrap: break-word;
+}
+
+/* 用户消息保留 pre-wrap */
+.user-message .message-content {
   white-space: pre-wrap;
 }
 

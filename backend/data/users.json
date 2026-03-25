@@ -21,7 +21,8 @@
     "avatar": "",
     "createdAt": "2026-03-23T09:00:45.065Z",
     "mentalHealthStatus": "状态良好",
-    "mentalHealthNote": ""
+    "mentalHealthNote": "",
+    "displayPassword": ""
   },
   {
     "id": "570e6dce-f458-4cf3-8e6f-eb3626d6cfc2",
@@ -32,18 +33,20 @@
     "avatar": "",
     "createdAt": "2026-03-23T09:15:38.737Z",
     "mentalHealthStatus": "轻度焦虑",
-    "mentalHealthNote": ""
+    "mentalHealthNote": "",
+    "displayPassword": ""
   },
   {
     "id": "a19dc382-9429-475d-ad9e-a17bf28c22ae",
     "username": "001",
     "nickname": "001",
-    "password": "b6eb26f9b167934f3ccb9223a2077f1e30db11c8d848a78140ec3a23f591e6c85bc4d0d3a8b5ef03a4579fabf2a523de4372fb321295e316921525e97c4df164",
-    "salt": "e3159a35714e09f177a1a3c2a52ef23e",
+    "password": "4355615eaf61e509b00b6479d18b89abd3f0b01469679f971cf884ac4cd2cbfede8f0d516fd246f17699b0ebdaa575f8e64b8add79940cee591eb045fcf4b819",
+    "salt": "d5ba2e2366aadea083d6409b8cc6dcfc",
     "avatar": "",
     "createdAt": "2026-03-23T09:21:43.648Z",
     "mentalHealthStatus": "中度焦虑",
-    "mentalHealthNote": ""
+    "mentalHealthNote": "",
+    "displayPassword": "123456"
   },
   {
     "id": "5ef181ca-9484-426d-866e-22987c4f2c36",

@@ -1,4 +1,4 @@
-import { BASE_URL } from './config'
+import { BASE_URL, request } from './config'
 import { getToken } from '../utils/storage'
 
 /**
@@ -38,4 +38,26 @@ export function parseSSELine(line) {
   } catch {
     return null
   }
+}
+
+// ==================== 聊天会话持久化 API ====================
+
+/** 从后端获取当前用户的所有会话 */
+export function fetchSessions() {
+  return request('/api/chat/sessions')
+}
+
+/** 全量保存当前用户的所有会话到后端 */
+export function saveSessionsToServer(sessions) {
+  return request('/api/chat/sessions', {
+    method: 'PUT',
+    body: JSON.stringify({ sessions })
+  })
+}
+
+/** 删除后端指定会话 */
+export function deleteSessionFromServer(sessionId) {
+  return request(`/api/chat/sessions/${sessionId}`, {
+    method: 'DELETE'
+  })
 }

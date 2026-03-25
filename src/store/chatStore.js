@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getItem, setItem } from '../utils/storage'
 import { useUserStore } from './userStore'
+import { fetchSessions as apiFetchSessions, saveSessionsToServer, deleteSessionFromServer } from '../api/chat'
 
 /**
  * @typedef {'user' | 'assistant' | 'system'} MessageRole
@@ -56,10 +57,31 @@ export const useChatStore = defineStore('chat', () => {
 
   // ==================== 持久化 ====================
 
-  function loadSessions() {
+  /**
+   * 加载会话：优先从后端获取，失败时 fallback 到 localStorage
+   */
+  async function loadSessions() {
     const key = getStorageKey()
     if (!key) return
 
+    try {
+      // 优先从后端加载
+      const res = await apiFetchSessions()
+      const serverSessions = res.data
+      if (Array.isArray(serverSessions) && serverSessions.length > 0) {
+        sessions.value = serverSessions
+        // 同步写入 localStorage 作为缓存
+        setItem(key, serverSessions)
+        if (!activeSessionId.value) {
+          activeSessionId.value = sessions.value[0].id
+        }
+        return
+      }
+    } catch {
+      // 后端请求失败，静默降级到 localStorage
+    }
+
+    // fallback：从 localStorage 加载
     const saved = getItem(key)
     if (Array.isArray(saved) && saved.length > 0) {
       sessions.value = saved
@@ -72,10 +94,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * 保存会话：同时写入 localStorage（快速缓存）和后端（持久化）
+   */
   function saveSessions() {
     const key = getStorageKey()
     if (!key) return
+    // localStorage 立即写入，保证响应速度
     setItem(key, sessions.value)
+    // 异步同步到后端，不阻塞 UI
+    saveSessionsToServer(sessions.value).catch(() => {})
   }
 
   // ==================== 会话管理 ====================
@@ -120,6 +148,8 @@ export const useChatStore = defineStore('chat', () => {
         : null
     }
     saveSessions()
+    // 同步删除后端数据
+    deleteSessionFromServer(sessionId).catch(() => {})
   }
 
   function clearAllSessions() {
