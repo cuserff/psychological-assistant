@@ -5,8 +5,9 @@
 
 .markdown-body {
   font-size: 15px;
-  line-height: 1.7;
-  color: #1e293b;
+  line-height: 1.75;
+  letter-spacing: 0.5px;
+  color: var(--app-color-text);
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -72,7 +73,7 @@
 .markdown-body pre {
   margin: 12px 0;
   border-radius: 8px;
-  background-color: #1e293b;
+  background-color: var(--app-code-block-bg);
   overflow-x: auto;
 }
 
@@ -80,7 +81,7 @@
   display: block;
   padding: 14px 16px;
   background: none;
-  color: #e2e8f0;
+  color: var(--app-code-block-fg);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre;
@@ -90,9 +91,9 @@
 .markdown-body blockquote {
   margin: 12px 0;
   padding: 8px 16px;
-  border-left: 4px solid #0284c7;
-  background-color: #f0f9ff;
-  color: #475569;
+  border-left: 4px solid var(--app-color-primary);
+  background-color: var(--app-color-primary-soft-bg);
+  color: var(--app-color-text-secondary);
 }
 
 .markdown-body blockquote p {
@@ -102,7 +103,7 @@
 /* 粗体、斜体 */
 .markdown-body strong {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--app-color-text);
 }
 
 .markdown-body em {
@@ -111,7 +112,7 @@
 
 /* 链接 */
 .markdown-body a {
-  color: #0284c7;
+  color: var(--app-color-primary);
   text-decoration: none;
 }
 
@@ -123,7 +124,7 @@
 .markdown-body hr {
   margin: 16px 0;
   border: none;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--app-color-border);
 }
 
 /* 表格 */
@@ -137,21 +138,28 @@
 .markdown-body th,
 .markdown-body td {
   padding: 8px 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--app-color-border);
   text-align: left;
 }
 
 .markdown-body th {
-  background-color: #f8fafc;
+  background-color: var(--app-color-fill-muted);
   font-weight: 600;
 }
 
 .markdown-body tr:nth-child(even) {
-  background-color: #f8fafc;
+  background-color: var(--app-color-fill-muted);
 }
 
 /* 图片 */
 .markdown-body img {
   max-width: 100%;
   border-radius: 8px;
+}
+
+/* highlight.js（github 主题）在深色背景下避免残留浅色底 */
+html.dark .markdown-body pre code.hljs,
+html[data-theme='dark'] .markdown-body pre code.hljs {
+  background: transparent !important;
+  color: var(--app-code-block-fg) !important;
 }

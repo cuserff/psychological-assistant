@@ -1,5 +1,11 @@
 import { useChatStore } from '../store/chatStore'
-import { buildContextMessages, streamLLMResponse, DEFAULT_MAX_ROUNDS } from '../api/llm'
+import {
+  buildContextMessages,
+  buildContextMessagesTextOnly,
+  streamLLMResponse,
+  isVisionEnabled,
+  DEFAULT_MAX_ROUNDS
+} from '../api/llm'
 
 /**
  * 聊天核心组合式函数
@@ -10,7 +16,7 @@ import { buildContextMessages, streamLLMResponse, DEFAULT_MAX_ROUNDS } from '../
  * @param {Object}  [options]
  * @param {number}  [options.maxRounds=5]      上下文保留的最大轮数
  * @param {string}  [options.systemPrompt]     自定义系统提示词（不传则用默认）
- * @returns {{ sendMessage: (content: string) => Promise<void> }}
+ * @returns {{ sendMessage: (content: string, options?: { imageDataUrls?: string[] }) => Promise<void> }}
  */
 export function useChat(options = {}) {
   const chatStore = useChatStore()
@@ -18,11 +24,20 @@ export function useChat(options = {}) {
 
   /**
    * 发送一条用户消息并流式接收 LLM 回复
-   * @param {string} content 用户输入文本
+   * @param {string} content 用户输入文本（可与图片同时发）
+   * @param {Object} [sendOptions]
+   * @param {string[]} [sendOptions.imageDataUrls] 已压缩的图片 data URL
    * @throws {Error} 网络或 API 错误（由调用方 catch 处理 UI 提示）
    */
-  async function sendMessage(content) {
-    if (!content.trim() || chatStore.isGenerating) return
+  async function sendMessage(content, sendOptions = {}) {
+    const text = (content || '').trim()
+    const imageDataUrls = Array.isArray(sendOptions.imageDataUrls)
+      ? sendOptions.imageDataUrls.filter(
+        (item) => typeof item === 'string' && item.length > 0
+      )
+      : []
+
+    if ((!text && imageDataUrls.length === 0) || chatStore.isGenerating) return
 
     // 1. 确保有活跃会话
     if (!chatStore.activeSession) {
@@ -30,18 +45,12 @@ export function useChat(options = {}) {
     }
 
     // 2. 将用户消息写入 Store
-    chatStore.addUserMessage(content)
+    chatStore.addUserMessage(content, { images: imageDataUrls })
 
     // 3. 创建 assistant 占位消息，拿到索引
     const assistantMsgIndex = chatStore.createAssistantPlaceholder()
 
-    // 4. 从当前会话完整消息中截取最近 N 轮上下文
-    const contextMessages = buildContextMessages(
-      chatStore.activeSession.messages,
-      { maxRounds, systemPrompt }
-    )
-
-    // 5. 标记生成中
+    // 4. 先占住生成态与 Abort，避免多图内联阶段重复发送
     chatStore.isGenerating = true
     const abortController = new AbortController()
     chatStore.setCurrentAbortController(abortController)
@@ -49,8 +58,22 @@ export function useChat(options = {}) {
     let aborted = false
 
     try {
-      // 6. 流式请求，增量文本通过回调写入 Store
+      // 5. 截取上下文并把历史中的图片内联为多模态 content（异步）
+      const contextMessages = await buildContextMessages(
+        chatStore.activeSession.messages,
+        { maxRounds, systemPrompt, signal: abortController.signal }
+      )
+
+      const textOnlyFallback = isVisionEnabled()
+        ? buildContextMessagesTextOnly(chatStore.activeSession.messages, {
+          maxRounds,
+          systemPrompt
+        })
+        : undefined
+
+      // 6. 流式请求；多模态不被当前模型支持时自动改发纯文本
       await streamLLMResponse(contextMessages, {
+        fallbackContextMessages: textOnlyFallback,
         onDelta(delta) {
           chatStore.appendAssistantDelta(assistantMsgIndex, delta)
         },
@@ -63,7 +86,6 @@ export function useChat(options = {}) {
         throw error
       }
     } finally {
-      // 7. 无论成功/失败/取消，收尾：补文本 + 持久化 + 解除生成锁
       chatStore.finalizeReply(assistantMsgIndex, { aborted })
       chatStore.isGenerating = false
       chatStore.clearCurrentAbortController()

@@ -138,7 +138,7 @@ function handleRetry() {
 }
 
 .assessment-tabs {
-  background: #fff;
+  background: var(--app-color-bg-elevated);
   border-radius: 8px;
   padding: 16px 20px;
 }
@@ -156,13 +156,13 @@ function handleRetry() {
 .phase-title {
   font-size: 20px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin: 0 0 6px;
 }
 
 .phase-desc {
   font-size: 14px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin: 0;
 }
 

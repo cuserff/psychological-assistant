@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Delete, EditPen } from '@element-plus/icons-vue'
 import { getAdminUsersApi, updateMentalStatusApi, deleteAdminUserApi } from '../../api/user'
+import { fetchAdminUserLatestAssessment } from '../../api/assessment'
 import avatarBoy from '../../assets/images/avatar-boy.svg'
 import avatarGirl from '../../assets/images/avatar-girl.svg'
 
@@ -18,9 +19,11 @@ const MENTAL_STATUS_OPTIONS = [
   { label: '状态良好', value: '状态良好', tagType: 'success' },
   { label: '轻度焦虑', value: '轻度焦虑', tagType: 'warning' },
   { label: '中度焦虑', value: '中度焦虑', tagType: 'warning' },
+  { label: '中重度焦虑', value: '中重度焦虑', tagType: 'danger' },
   { label: '重度焦虑', value: '重度焦虑', tagType: 'danger' },
   { label: '轻度抑郁', value: '轻度抑郁', tagType: 'warning' },
   { label: '中度抑郁', value: '中度抑郁', tagType: 'danger' },
+  { label: '中重度抑郁', value: '中重度抑郁', tagType: 'danger' },
   { label: '重度抑郁', value: '重度抑郁', tagType: 'danger' },
   { label: '需要关注', value: '需要关注', tagType: 'danger' }
 ]
@@ -40,11 +43,57 @@ const filteredUserList = computed(() => {
   )
 })
 
+function isAnxietyScale(scaleId) {
+  return scaleId === 'GAD-7' || scaleId === 'SAS'
+}
+
+function isDepressionScale(scaleId) {
+  return scaleId === 'PHQ-9' || scaleId === 'SDS'
+}
+
+function buildStatusFromAssessment(latestAssessment) {
+  if (!latestAssessment) return null
+  const severity = latestAssessment.severity
+  const scaleId = latestAssessment.scaleId
+
+  if (severity === 'normal') return '状态良好'
+  if (severity === 'mild') return isAnxietyScale(scaleId) ? '轻度焦虑' : (isDepressionScale(scaleId) ? '轻度抑郁' : '需要关注')
+  if (severity === 'moderate') return isAnxietyScale(scaleId) ? '中度焦虑' : (isDepressionScale(scaleId) ? '中度抑郁' : '需要关注')
+  if (severity === 'moderately-severe') return isAnxietyScale(scaleId) ? '中重度焦虑' : (isDepressionScale(scaleId) ? '中重度抑郁' : '需要关注')
+  if (severity === 'severe') return isAnxietyScale(scaleId) ? '重度焦虑' : (isDepressionScale(scaleId) ? '重度抑郁' : '需要关注')
+  return '需要关注'
+}
+
+function getDerivedMentalStatus(user) {
+  const manualStatus = user?.mentalHealthStatus
+  // 管理员已明确设置过（非“未评估”）则优先使用管理员状态
+  if (manualStatus && manualStatus !== '未评估') return { status: manualStatus, source: '管理员' }
+
+  const derivedStatus = buildStatusFromAssessment(user?.latestAssessment)
+  if (derivedStatus) return { status: derivedStatus, source: '测评' }
+
+  return { status: manualStatus || '未评估', source: '—' }
+}
+
 async function loadUsers() {
   tableLoading.value = true
   try {
     const res = await getAdminUsersApi()
-    userList.value = res.data
+    const users = Array.isArray(res.data) ? res.data : []
+
+    // 补充每个用户的最新测评摘要（若后端接口未实现则静默失败）
+    const enrichedUsers = await Promise.all(users.map(async (user) => {
+      const userId = user?.id
+      if (!userId) return user
+      try {
+        const assessmentRes = await fetchAdminUserLatestAssessment(userId)
+        return { ...user, latestAssessment: assessmentRes?.data || null }
+      } catch {
+        return { ...user, latestAssessment: null }
+      }
+    }))
+
+    userList.value = enrichedUsers
   } catch (error) {
     ElMessage.error(error.message || '获取用户列表失败')
   } finally {
@@ -60,11 +109,39 @@ const editLoading = ref(false)
 
 function openEditDialog(user) {
   editingUser.value = user
+  const derived = getDerivedMentalStatus(user)
   editForm.value = {
-    mentalHealthStatus: user.mentalHealthStatus || '未评估',
+    mentalHealthStatus: derived.status || '未评估',
     mentalHealthNote: user.mentalHealthNote || ''
   }
+
+  // 未被管理员标注过时：如果有最新测评且备注为空，自动预填一条“同步来源”说明
+  const manualStatus = user?.mentalHealthStatus
+  const isManuallyMarked = manualStatus && manualStatus !== '未评估'
+  if (!isManuallyMarked && user?.latestAssessment && !editForm.value.mentalHealthNote) {
+    const scaleName = user.latestAssessment.scaleName || user.latestAssessment.scaleId
+    const level = user.latestAssessment.level || '未知'
+    editForm.value.mentalHealthNote = `同步自最新测评：${scaleName}，结果：${level}`
+  }
+
   editDialogVisible.value = true
+}
+
+function syncFromLatestAssessment() {
+  const user = editingUser.value
+  const derived = getDerivedMentalStatus(user)
+  editForm.value.mentalHealthStatus = derived.status || '未评估'
+  if (user?.latestAssessment) {
+    const scaleName = user.latestAssessment.scaleName || user.latestAssessment.scaleId
+    const level = user.latestAssessment.level || '未知'
+    editForm.value.mentalHealthNote = `同步自最新测评：${scaleName}，结果：${level}`
+  }
+}
+
+async function syncAndSaveFromLatestAssessment() {
+  if (!editingUser.value?.latestAssessment) return
+  syncFromLatestAssessment()
+  await handleSaveMentalStatus()
 }
 
 async function handleSaveMentalStatus() {
@@ -189,9 +266,19 @@ onMounted(() => {
 
         <el-table-column label="心理状态" min-width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="getTagType(row.mentalHealthStatus)" size="default">
-              {{ row.mentalHealthStatus || '未评估' }}
-            </el-tag>
+            <div class="mental-status-cell">
+              <el-tag :type="getTagType(getDerivedMentalStatus(row).status)" size="default">
+                {{ getDerivedMentalStatus(row).status }}
+              </el-tag>
+              <el-tag
+                v-if="getDerivedMentalStatus(row).source !== '—'"
+                type="info"
+                size="small"
+                effect="plain"
+              >
+                {{ getDerivedMentalStatus(row).source }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
 
@@ -238,6 +325,11 @@ onMounted(() => {
       :title="`心理状态评估 — ${editingUser?.nickname || editingUser?.username}`"
       width="460px"
     >
+      <div v-if="editingUser?.latestAssessment" class="latest-assessment-hint">
+        最新测评：{{ editingUser.latestAssessment.scaleName || editingUser.latestAssessment.scaleId }}，
+        结果：{{ editingUser.latestAssessment.level }}（{{ editingUser.latestAssessment.severity }}），
+        时间：{{ new Date(editingUser.latestAssessment.createdAt).toLocaleString('zh-CN') }}
+      </div>
       <el-form :model="editForm" label-width="90px">
         <el-form-item label="心理状态">
           <el-select v-model="editForm.mentalHealthStatus" style="width: 100%;">
@@ -260,6 +352,18 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button v-if="editingUser?.latestAssessment" @click="syncFromLatestAssessment">
+          同步到表单
+        </el-button>
+        <el-button
+          v-if="editingUser?.latestAssessment"
+          type="primary"
+          plain
+          :loading="editLoading"
+          @click="syncAndSaveFromLatestAssessment"
+        >
+          同步并保存
+        </el-button>
         <el-button type="primary" :loading="editLoading" @click="handleSaveMentalStatus">
           保存
         </el-button>
@@ -339,5 +443,24 @@ onMounted(() => {
 .note-text {
   color: #6b7280;
   font-size: 13px;
+}
+
+.mental-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.latest-assessment-hint {
+  padding: 10px 12px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  color: #0f172a;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 12px;
 }
 </style>

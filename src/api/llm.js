@@ -1,4 +1,5 @@
 import { sendChatRequest, parseSSELine } from './chat'
+import { BASE_URL, resolveUploadUrl } from './config'
 
 /**
  * 心理助手系统提示词
@@ -34,29 +35,15 @@ export const SYSTEM_PROMPT = `## 身份与角色
 - **节奏感**：不要在一次回复中堆砌过多技术或建议。每次聚焦一个主题，循序渐进。
 - **肯定与赋能**：在适当时真诚地肯定用户的勇气与力量，例如"你愿意说出来，这本身就需要很大的勇气"。
 
-## ⚠️ 安全红线：危机干预协议
+## ⚠️ 安全与紧急转介（发往模型服务时请避免出现可被机审误判的用户原话式示例）
 
-当你识别到用户表达以下任何高风险信号时，**必须立即启动危机干预流程**，优先级高于一切常规对话：
+当用户透露出**可能危及自身或他人身心安全**、或**情绪处于紧急崩溃**等情形时，你应**优先于一般聊天**做简短、稳妥的回应：
 
-**高风险信号包括但不限于**：
-- 明确或含蓄的自杀意念（如"不想活了""活着没有意义""如果我消失了就好了"）
-- 自残行为或意图（如"我想伤害自己""我已经划了手臂"）
-- 伤害他人的想法或计划
-- 严重的现实解离感或精神病性症状描述
+1. **真诚表达关切**，承认对方处境沉重，避免否定或轻描淡写。  
+2. **说明边界**：线上助手不能代替精神科、急救或线下心理危机处置。  
+3. **引导求助**：温和建议对方尽快联系**当地公开心理援助渠道、亲友陪同就医**；若判断可能涉及**立即的人身危险**，应明确建议拨打 **120** 或就近前往**医院急诊**，并鼓励向身边可信成人求助。
 
-**危机干预回复必须同时包含以下三个要素**：
-1. **情感回应**：真诚地表达关切，例如"我听到你说的了，我非常担心你现在的安全"。
-2. **危机预警声明**：明确告知用户当前状态需要专业的即时帮助，AI 对话无法替代。
-3. **专业求助资源**：
-   - 全国24小时心理援助热线：**400-161-9995**
-   - 北京心理危机研究与干预中心：**010-82951332**
-   - 生命热线：**400-821-1215**
-   - 紧急情况请拨打 **120** 或前往最近的医院急诊科
-
-**危机干预时绝对禁止**：
-- 淡化用户的痛苦（如"想开点""没那么严重"）
-- 继续进行常规的心理咨询对话
-- 尝试独立处理危机情况
+上述情形下**不要**继续讲故事、做游戏化闲聊或给出「再扛一扛就好」类表述；仍需保持语气稳定、避免危言耸听。
 
 ## 边界声明
 
@@ -69,6 +56,326 @@ export const SYSTEM_PROMPT = `## 身份与角色
 /** 默认保留的最大对话轮数（1 轮 = 1 次用户提问 + 1 次助手回复） */
 export const DEFAULT_MAX_ROUNDS = 5
 
+/**
+ * 是否在请求中内联图片为多模态 content（依赖模型与网关支持）。
+ * .env 中设置 VITE_LLM_VISION=false 或 0 可关闭，仅发纯文本（Markdown 说明 + 链接提示）。
+ */
+export function isVisionEnabled() {
+  if (typeof import.meta === 'undefined' || !import.meta.env) {
+    return true
+  }
+  const raw = import.meta.env.VITE_LLM_VISION
+  if (raw === undefined || raw === '') {
+    return true
+  }
+  const normalized = String(raw).toLowerCase()
+  return normalized !== 'false' && normalized !== '0' && normalized !== 'no'
+}
+
+/**
+ * 单张图多模态内联 base64 最大字符数（与前端压缩上传后的 JPEG 体积匹配）。
+ * 原 120000 过小，会导致几乎所有上传图被丢弃，模型只能回复「看不见图」。
+ */
+const MAX_IMAGE_DATA_URL_IN_PROMPT = 2_600_000
+
+/**
+ * 将过大的 JPEG data URL 通过缩放与降质量压到上限内（仍失败则返回空串）
+ * @param {string} dataUrl
+ * @param {number} maxLen
+ * @returns {Promise<string>}
+ */
+function shrinkImageDataUrlToMaxLength(dataUrl, maxLen) {
+  return new Promise((resolve, reject) => {
+    if (dataUrl.length <= maxLen) {
+      resolve(dataUrl)
+      return
+    }
+    if (!dataUrl.startsWith('data:image/')) {
+      resolve('')
+      return
+    }
+    const imageElement = new Image()
+    imageElement.onload = () => {
+      void (async () => {
+        try {
+          let naturalWidth = imageElement.naturalWidth
+          let naturalHeight = imageElement.naturalHeight
+          let maxEdge = 1280
+          let quality = 0.82
+          let bestFit = ''
+
+          for (let attempt = 0; attempt < 22; attempt++) {
+            const longest = Math.max(naturalWidth, naturalHeight)
+            const scale = longest > 0 ? Math.min(1, maxEdge / longest) : 1
+            const targetWidth = Math.max(1, Math.round(naturalWidth * scale))
+            const targetHeight = Math.max(1, Math.round(naturalHeight * scale))
+
+            const canvas = document.createElement('canvas')
+            canvas.width = targetWidth
+            canvas.height = targetHeight
+            const context = canvas.getContext('2d')
+            if (!context) {
+              resolve('')
+              return
+            }
+            context.drawImage(imageElement, 0, 0, targetWidth, targetHeight)
+            const jpegUrl = canvas.toDataURL('image/jpeg', quality)
+            if (jpegUrl.length <= maxLen) {
+              bestFit = jpegUrl
+              break
+            }
+            bestFit = jpegUrl
+            if (quality > 0.35) {
+              quality -= 0.06
+            } else {
+              maxEdge = Math.max(280, Math.floor(maxEdge * 0.85))
+            }
+          }
+
+          resolve(bestFit.length <= maxLen ? bestFit : '')
+        } catch {
+          resolve('')
+        }
+      })()
+    }
+    imageElement.onerror = () => reject(new Error('图像解码失败'))
+    imageElement.src = dataUrl
+  })
+}
+
+/** 相对路径转绝对 URL，供模型侧可能拉取（本地开发多为 localhost） */
+function toAbsoluteImageRef(stored) {
+  if (!stored || typeof stored !== 'string') return ''
+  if (/^https?:\/\//i.test(stored) || stored.startsWith('data:')) return stored
+  return `${BASE_URL}${stored.startsWith('/') ? '' : '/'}${stored}`
+}
+
+/**
+ * Blob 转 data URL（供多模态接口 inline 传图）
+ * @param {Blob} blob
+ * @returns {Promise<string>}
+ */
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      resolve(typeof reader.result === 'string' ? reader.result : '')
+    }
+    reader.onerror = () => reject(reader.error || new Error('read-blob-failed'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * 将用户消息里的图片引用转为多模态接口可用的 url（多为 data:）
+ * 云端无法访问 localhost / 内网相对路径，必须在浏览器侧拉取后内联为 base64。
+ *
+ * @param {string} imageRef
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<string>} data URL 或可公网访问的 https URL
+ */
+async function imageRefToVisionUrl(imageRef, signal) {
+  if (!imageRef || typeof imageRef !== 'string') return ''
+
+  if (imageRef.startsWith('data:')) {
+    return imageRef.length <= MAX_IMAGE_DATA_URL_IN_PROMPT ? imageRef : ''
+  }
+
+  const isPublicHttps =
+    /^https:\/\//i.test(imageRef)
+    && !/localhost|127\.0\.0\.1/i.test(imageRef)
+
+  if (isPublicHttps) {
+    return imageRef
+  }
+
+  const fetchUrl = /^https?:\/\//i.test(imageRef)
+    ? imageRef
+    : resolveUploadUrl(imageRef)
+
+  const response = await fetch(fetchUrl, { signal })
+  if (!response.ok) {
+    throw new Error(`图片拉取失败 (${response.status})`)
+  }
+  const blob = await response.blob()
+  let dataUrl = await blobToDataUrl(blob)
+  if (dataUrl.length > MAX_IMAGE_DATA_URL_IN_PROMPT) {
+    try {
+      dataUrl = await shrinkImageDataUrlToMaxLength(
+        dataUrl,
+        MAX_IMAGE_DATA_URL_IN_PROMPT
+      )
+    } catch {
+      return ''
+    }
+  }
+  if (!dataUrl || dataUrl.length > MAX_IMAGE_DATA_URL_IN_PROMPT) {
+    return ''
+  }
+  return dataUrl
+}
+
+/**
+ * 构建单条 user 消息的 content：无图为 string；有图为 OpenAI / 讯飞 MaaS 兼容的多模态数组。
+ * @param {{ content?: string, images?: string[] }} message
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<string|Array<{type: string, text?: string, image_url?: { url: string }}>>}
+ */
+async function formatUserContentForLlm(message, signal) {
+  const text = (message.content || '').trim()
+  const images = Array.isArray(message.images)
+    ? message.images.filter((item) => typeof item === 'string' && item.length > 0)
+    : []
+
+  if (images.length === 0) {
+    return text
+  }
+
+  /** @type {Array<{type: string, text?: string, image_url?: { url: string }}>} */
+  const imageParts = []
+
+  for (let imageIndex = 0; imageIndex < images.length; imageIndex++) {
+    const imageRef = images[imageIndex]
+    try {
+      const urlForApi = await imageRefToVisionUrl(imageRef, signal)
+      if (!urlForApi) {
+        imageParts.push({
+          type: 'text',
+          text: `（图片 ${imageIndex + 1} 无法内联，原始引用：${toAbsoluteImageRef(imageRef)}）`
+        })
+        continue
+      }
+      imageParts.push({
+        type: 'image_url',
+        image_url: { url: urlForApi }
+      })
+    } catch {
+      imageParts.push({
+        type: 'text',
+        text: `（图片 ${imageIndex + 1} 加载失败，路径：${toAbsoluteImageRef(imageRef)}）`
+      })
+    }
+  }
+
+  const instruction =
+    '请结合上述图片的具体画面内容回应（如实描述你看到的、与用户情绪相关的部分），避免重复使用相同套话；若无法辨认细节，再温和请用户补充。'
+  const textBlock = text
+    ? `${text}\n\n${instruction}`
+    : `（本条仅含图片，用户未输入额外文字。）\n${instruction}`
+
+  // 视觉模型常见习惯：先图后文，便于对齐图像与后续提问
+  return [
+    ...imageParts,
+    { type: 'text', text: textBlock }
+  ]
+}
+
+/**
+ * @param {Array<{role: string, content?: string, images?: string[]}>} allMessages
+ * @param {number} maxRounds
+ */
+function filterAndSliceContext(allMessages, maxRounds) {
+  const validMessages = allMessages.filter((message) => {
+    if (!message || typeof message !== 'object') return false
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      return false
+    }
+    if (message.role === 'assistant') {
+      return Boolean(message.content?.trim())
+    }
+    const hasText = Boolean(message.content?.trim())
+    const hasImages =
+      Array.isArray(message.images) && message.images.length > 0
+    return hasText || hasImages
+  })
+
+  let roundCount = 0
+  let sliceStart = 0
+
+  for (let messageIndex = validMessages.length - 1; messageIndex >= 0; messageIndex--) {
+    if (validMessages[messageIndex].role === 'user') {
+      roundCount += 1
+      if (roundCount >= maxRounds) {
+        sliceStart = messageIndex
+        break
+      }
+    }
+  }
+
+  return validMessages.slice(sliceStart)
+}
+
+/**
+ * 纯文本上下文（无多模态内联），兼容不支持图文格式的模型
+ *
+ * @param {Array<{role: string, content?: string, images?: string[]}>} allMessages
+ * @param {Object} [options]
+ * @returns {Array<{role: string, content: string}>}
+ */
+export function buildContextMessagesTextOnly(allMessages, options = {}) {
+  const {
+    maxRounds = DEFAULT_MAX_ROUNDS,
+    systemPrompt = SYSTEM_PROMPT
+  } = options
+
+  const sliced = filterAndSliceContext(allMessages, maxRounds)
+  const contextSlice = sliced.map((message) => {
+    if (message.role === 'user') {
+      return {
+        role: 'user',
+        content: formatUserMessageForApi(message)
+      }
+    }
+    return { role: 'assistant', content: message?.content ?? '' }
+  })
+
+  const result = []
+  if (systemPrompt) {
+    result.push({ role: 'system', content: systemPrompt })
+  }
+  result.push(...contextSlice)
+  return result
+}
+
+/**
+ * 将 Store 中的用户消息（含可选图片：服务器相对路径 / URL / data URL）拼成发给模型的纯文本
+ * @param {{ content?: string, images?: string[] }} message
+ * @returns {string}
+ */
+export function formatUserMessageForApi(message) {
+  const text = (message.content || '').trim()
+  const images = Array.isArray(message.images)
+    ? message.images.filter((item) => typeof item === 'string' && item.length > 0)
+    : []
+
+  const segments = []
+  if (text) {
+    segments.push(text)
+  }
+  if (images.length > 0) {
+    segments.push(
+      '【系统说明】用户上传了图片（下列可能含 Markdown 图链或较短 base64）。'
+        + '纯文本模型或无法访问内网/本机链接时，你看不到真实画面，请勿假装已浏览图片；'
+        + '请结合用户文字提问回应，并友善邀请用户用一两句话描述画面或想讨论的重点。'
+    )
+    images.forEach((imageRef, index) => {
+      const absolute = toAbsoluteImageRef(imageRef)
+      if (imageRef.startsWith('data:')) {
+        if (absolute.length <= MAX_IMAGE_DATA_URL_IN_PROMPT) {
+          segments.push(`![用户上传图片${index + 1}](${absolute})`)
+        } else {
+          segments.push(
+            `（图片 ${index + 1} 数据过长未写入本次请求，用户界面仍可见原图。）`
+          )
+        }
+      } else {
+        segments.push(`![用户上传图片${index + 1}](${absolute})`)
+      }
+    })
+  }
+  return segments.join('\n\n')
+}
+
 // ==================== 上下文截取 ====================
 
 /**
@@ -77,44 +384,41 @@ export const DEFAULT_MAX_ROUNDS = 5
  * 「轮」的定义：从末尾向前扫描，每遇到一条 role=user 的消息计为一轮。
  * 最终返回这些轮次以及它们之间的 assistant 回复。
  *
- * @param {Array<{role: string, content: string}>} allMessages  Store 中的完整消息列表
+ * 含图用户消息会转为讯飞 MaaS 等多模态服务兼容的 content 数组（含内联 data URL），
+ * 避免仅发 Markdown 链接导致云端无法访问 localhost 图片、模型只能「套话」回复。
+ *
+ * @param {Array<{role: string, content?: string, images?: string[]}>} allMessages  Store 中的完整消息列表
  * @param {Object}  [options]
  * @param {number}  [options.maxRounds=5]          保留的最大轮数
  * @param {string}  [options.systemPrompt]         系统提示词，传空字符串可禁用
- * @returns {Array<{role: string, content: string}>} 可直接发给后端的 messages 数组
+ * @param {AbortSignal} [options.signal]           取消拉取图片内联时传入
+ * @returns {Promise<Array<{role: string, content: string | unknown}>>} 可直接发给后端的 messages 数组
  */
-export function buildContextMessages(allMessages, options = {}) {
-  const {
-    maxRounds = DEFAULT_MAX_ROUNDS,
-    systemPrompt = SYSTEM_PROMPT
-  } = options
-
-  // 只保留有实际内容的 user / assistant 消息
-  const validMessages = allMessages.filter(
-    m => (m.role === 'user' || m.role === 'assistant') && m.content?.trim()
-  )
-
-  // 从末尾向前扫描，找到第 maxRounds 个 user 消息所在的位置
-  let roundCount = 0
-  let sliceStart = 0
-
-  for (let i = validMessages.length - 1; i >= 0; i--) {
-    if (validMessages[i].role === 'user') {
-      roundCount++
-      if (roundCount >= maxRounds) {
-        sliceStart = i
-        break
-      }
-    }
+export async function buildContextMessages(allMessages, options = {}) {
+  if (!isVisionEnabled()) {
+    return buildContextMessagesTextOnly(allMessages, options)
   }
 
-  // 截取上下文
-  const contextSlice = validMessages.slice(sliceStart).map(m => ({
-    role: m.role,
-    content: m.content
-  }))
+  const {
+    maxRounds = DEFAULT_MAX_ROUNDS,
+    systemPrompt = SYSTEM_PROMPT,
+    signal
+  } = options
 
-  // 拼接 system 提示词到头部
+  const sliced = filterAndSliceContext(allMessages, maxRounds)
+
+  const contextSlice = await Promise.all(
+    sliced.map(async (message) => {
+      if (message.role === 'user') {
+        return {
+          role: 'user',
+          content: await formatUserContentForLlm(message, signal)
+        }
+      }
+      return { role: 'assistant', content: message?.content ?? '' }
+    })
+  )
+
   const result = []
   if (systemPrompt) {
     result.push({ role: 'system', content: systemPrompt })
@@ -124,27 +428,59 @@ export function buildContextMessages(allMessages, options = {}) {
   return result
 }
 
+/**
+ * @param {Array<{role: string, content?: unknown}>} messages
+ * @returns {boolean}
+ */
+function contextHasMultimodalUserContent(messages) {
+  return messages.some(
+    (message) =>
+      message.role === 'user' && Array.isArray(message.content)
+  )
+}
+
 // ==================== SSE 流式调度 ====================
 
 /**
  * 向后端大模型发送上下文，流式读取 SSE 回复。
  * 通过回调将增量文本交给调用方处理（Store / Composable）。
  *
- * @param {Array<{role: string, content: string}>} contextMessages  buildContextMessages 的输出
+ * @param {Array<{role: string, content: string | unknown}>} contextMessages  buildContextMessages 的输出
  * @param {Object}   callbacks
  * @param {function(string): void}  callbacks.onDelta    每收到一段增量文本时调用
  * @param {function(): void}        [callbacks.onComplete] 流正常结束时调用
  * @param {function(Error): void}   [callbacks.onError]    出错时调用（之后仍会 throw）
+ * @param {Array<{role: string, content: string}>} [callbacks.fallbackContextMessages] 多模态被拒或网关报错时改发纯文本再试一轮
  * @returns {Promise<void>}
  */
 export async function streamLLMResponse(
   contextMessages,
-  { onDelta, onComplete, onError, signal } = {}
+  { onDelta, onComplete, onError, signal, fallbackContextMessages } = {}
 ) {
-  const response = await sendChatRequest(contextMessages, { signal })
+  let response = await sendChatRequest(contextMessages, { signal })
+
+  if (
+    !response.ok
+    && Array.isArray(fallbackContextMessages)
+    && fallbackContextMessages.length > 0
+    && contextHasMultimodalUserContent(contextMessages)
+  ) {
+    response = await sendChatRequest(fallbackContextMessages, { signal })
+  }
 
   if (!response.ok) {
-    const errorMsg = `LLM API 请求失败 (HTTP ${response.status})`
+    let detail = ''
+    try {
+      const raw = await response.text()
+      if (raw) {
+        detail = raw.length > 320 ? `${raw.slice(0, 320)}…` : raw
+      }
+    } catch {
+      /* 忽略无法读取的响应体 */
+    }
+    const errorMsg = detail
+      ? `LLM 请求失败 (HTTP ${response.status})：${detail}`
+      : `LLM 请求失败 (HTTP ${response.status})`
     const error = new Error(errorMsg)
     onError?.(error)
     throw error

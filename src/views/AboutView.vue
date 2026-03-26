@@ -30,13 +30,17 @@
   padding: 20px;
 }
 
+.about-container h2 {
+  color: var(--app-color-text);
+}
+
 .about-content {
   margin-top: 20px;
 }
 
 .about-content h3 {
   margin-top: 20px;
-  color: #333;
+  color: var(--app-color-text);
 }
 
 .about-content ul {
@@ -47,6 +51,6 @@
 
 .about-content li {
   margin-bottom: 5px;
-  color: #666;
+  color: var(--app-color-text-secondary);
 }
 </style>

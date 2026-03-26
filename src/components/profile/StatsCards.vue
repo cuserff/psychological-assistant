@@ -42,7 +42,7 @@ const cardList = computed(() => [
     value: props.stats?.chatDays ?? '-',
     icon: Calendar,
     bgColor: '#e0f2fe',
-    iconColor: '#0284c7'
+    iconColor: 'var(--app-color-primary)'
   },
   {
     label: '会话总数',
@@ -140,13 +140,13 @@ const cardList = computed(() => [
 .stat-value {
   font-size: 22px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--app-color-text);
   line-height: 1.3;
 }
 
 .stat-label {
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--app-color-text-muted);
   margin-top: 4px;
 }
 </style>

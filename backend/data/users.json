@@ -39,7 +39,7 @@
   {
     "id": "a19dc382-9429-475d-ad9e-a17bf28c22ae",
     "username": "001",
-    "nickname": "001",
+    "nickname": "弗兰克",
     "password": "4355615eaf61e509b00b6479d18b89abd3f0b01469679f971cf884ac4cd2cbfede8f0d516fd246f17699b0ebdaa575f8e64b8add79940cee591eb045fcf4b819",
     "salt": "d5ba2e2366aadea083d6409b8cc6dcfc",
     "avatar": "boy",
@@ -68,10 +68,23 @@
     "password": "74961b3df6532473f9208bcc99bcb280206638b557011d80a58fcb98222438bb18e9815e304ac8dde5dbed5945229e4d6255a29089543bdc31d48dc3d7b406af",
     "salt": "4583a920a70bf0d4aa950dd81fddaf1c",
     "displayPassword": "123456",
+    "avatar": "boy",
+    "role": "user",
+    "mentalHealthStatus": "中度抑郁",
+    "mentalHealthNote": "同步自最新测评：PHQ-9 抑郁症筛查量表，结果：中度抑郁",
+    "createdAt": "2026-03-25T15:16:49.097Z"
+  },
+  {
+    "id": "c467d5a0-e35c-4458-92bb-ea8f7782ae62",
+    "username": "004",
+    "nickname": "004",
+    "password": "3b098ea3393ff5994ead0627e6a5496a20742540b383b6b778ab73ddcd77e2aacede780de615212d75aa606f80f4e952895b9d424558849314f0780d1075bf0d",
+    "salt": "c810c7fbbe4d260c51d4f74f33c78fca",
+    "displayPassword": "123456",
     "avatar": "",
     "role": "user",
-    "mentalHealthStatus": "未评估",
-    "mentalHealthNote": "",
-    "createdAt": "2026-03-25T15:16:49.097Z"
+    "mentalHealthStatus": "中度抑郁",
+    "mentalHealthNote": "同步自最新测评：PHQ-9 抑郁症筛查量表，结果：中度抑郁",
+    "createdAt": "2026-03-25T16:10:15.841Z"
   }
 ]

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "bcc69370-630f-45a7-ada6-0b9b4dfbc2bb",
+    "userId": "9fa35cc9-8ec7-43df-aec9-45f8d428aab4",
+    "scaleId": "PHQ-9",
+    "scaleName": "PHQ-9 抑郁症筛查量表",
+    "answers": [
+      0,
+      1,
+      2,
+      3,
+      2,
+      0,
+      1,
+      2,
+      3
+    ],
+    "rawScore": 14,
+    "standardScore": null,
+    "level": "中度抑郁",
+    "severity": "moderate",
+    "createdAt": "2026-03-25T15:58:25.429Z"
+  }
+]

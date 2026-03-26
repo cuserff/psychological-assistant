@@ -36,3 +36,14 @@ export function deleteAssessment(id) {
     method: 'DELETE'
   })
 }
+
+// ==================== 管理员：查看用户测评摘要 ====================
+
+/**
+ * 管理员获取指定用户的最新测评记录摘要
+ * 期望后端返回：{ code, data: { id, userId, scaleId, scaleName, level, severity, rawScore, standardScore, createdAt } }
+ * @param {string} userId
+ */
+export function fetchAdminUserLatestAssessment(userId) {
+  return request(`/api/admin/users/${userId}/assessment/latest`)
+}

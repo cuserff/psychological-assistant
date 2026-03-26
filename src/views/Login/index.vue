@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../../store/userStore'
 import { ElMessage } from 'element-plus'
 import { User, Lock, UserFilled } from '@element-plus/icons-vue'
+// 与 AI 对话侧栏头像一致（小愈形象）
+import avatarAiCompanion from '../../assets/images/avatar-ai-companion.svg?url'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -100,10 +102,8 @@ async function handleRegister() {
   <div class="login-page">
     <div class="login-card">
       <div class="login-header">
-        <div class="logo-icon">
-          <el-icon :size="36" color="#0284c7">
-            <UserFilled />
-          </el-icon>
+        <div class="logo-icon" aria-hidden="true">
+          <img :src="avatarAiCompanion" alt="" class="login-brand-img" />
         </div>
         <h1 class="login-title">智能心理助手</h1>
         <p class="login-subtitle">基于大语言模型的心理健康辅助系统</p>
@@ -165,15 +165,25 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 50%, #ecfeff 100%);
+  padding: var(--app-space-2);
+  background: linear-gradient(
+    135deg,
+    var(--app-color-primary-soft-bg) 0%,
+    var(--app-color-bg) 45%,
+    var(--app-color-primary-muted) 100%
+  );
 }
 
 .login-card {
-  width: 420px;
-  padding: 40px 36px 28px;
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(2, 132, 199, 0.12);
+  width: 100%;
+  max-width: 420px;
+  padding: var(--app-space-4) var(--app-space-3) calc(var(--app-space-3) * 1.2);
+  background: var(--app-color-bg-elevated);
+  border-radius: var(--app-radius-lg);
+  border: 1px solid var(--app-color-border);
+  box-shadow:
+    0 8px 32px color-mix(in srgb, var(--app-color-primary) 12%, transparent),
+    0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .login-header {
@@ -184,29 +194,44 @@ async function handleRegister() {
 .logo-icon {
   width: 64px;
   height: 64px;
-  margin: 0 auto 16px;
-  background: #f0f9ff;
+  margin: 0 auto var(--app-space-2);
+  padding: 8px;
+  box-sizing: border-box;
+  background: linear-gradient(160deg, #ecfdf5, #d1fae5);
+  border: 1px solid color-mix(in srgb, var(--app-color-primary) 35%, var(--app-color-border));
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+html.dark .logo-icon,
+html[data-theme='dark'] .logo-icon {
+  background: linear-gradient(160deg, var(--app-color-primary-muted), var(--app-color-fill-muted));
+}
+
+.login-brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 .login-title {
   font-size: 24px;
   font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 8px;
+  color: var(--app-color-text);
+  margin: 0 0 var(--app-space-1);
 }
 
 .login-subtitle {
   font-size: 14px;
-  color: #94a3b8;
+  color: var(--app-color-text-muted);
   margin: 0;
 }
 
 .login-tabs :deep(.el-tabs__header) {
-  margin-bottom: 20px;
+  margin-bottom: var(--app-space-2);
 }
 
 .login-tabs :deep(.el-tabs__item) {
@@ -215,28 +240,21 @@ async function handleRegister() {
 }
 
 .login-tabs :deep(.el-tabs__active-bar) {
-  background-color: #0284c7;
+  background-color: var(--el-color-primary);
 }
 
 .login-tabs :deep(.el-tabs__item.is-active) {
-  color: #0284c7;
+  color: var(--el-color-primary);
 }
 
 .login-btn {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
   font-size: 16px;
   letter-spacing: 4px;
-  background-color: #0284c7;
-  border-color: #0284c7;
-}
-
-.login-btn:hover {
-  background-color: #0369a1;
-  border-color: #0369a1;
 }
 
 :deep(.el-input__wrapper) {
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
 }
 </style>

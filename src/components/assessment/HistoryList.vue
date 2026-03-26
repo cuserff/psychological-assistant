@@ -9,6 +9,7 @@ import { ElConfigProvider, ElMessage, ElMessageBox } from 'element-plus'
 import { SCALES } from '../../data/scales'
 import { useAssessmentStore } from '../../store/assessmentStore'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import { readCssVar } from '../../utils/cssVar'
 
 const props = defineProps({
   /** 历史记录数组 */
@@ -405,8 +406,8 @@ async function handleDeleteRecord(recordId) {
 }
 
 .filter-bar {
-  background: #fff;
-  border: 1px solid #ebeef5;
+  background: var(--app-color-bg-elevated);
+  border: 1px solid var(--app-color-border);
   border-radius: 12px;
   padding: 16px 18px;
   margin-bottom: 14px;
@@ -415,12 +416,12 @@ async function handleDeleteRecord(recordId) {
 .filter-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin-bottom: 10px;
 }
 
 .filter-form :deep(.el-form-item__label) {
-  color: #606266;
+  color: var(--app-color-el-text-regular);
   font-weight: 500;
 }
 
@@ -444,7 +445,7 @@ async function handleDeleteRecord(recordId) {
 .score-text {
   font-size: 16px;
   font-weight: 700;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .pagination-wrap {

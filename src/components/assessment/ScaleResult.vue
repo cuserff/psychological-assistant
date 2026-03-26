@@ -6,6 +6,7 @@
 import { ref, onMounted, computed } from 'vue'
 import * as echarts from 'echarts'
 import { WarningFilled, RefreshRight, Back } from '@element-plus/icons-vue'
+import { readCssVar } from '../../utils/cssVar'
 
 const props = defineProps({
   /** 测评结果数据 */
@@ -45,7 +46,7 @@ function initChart() {
 
   const chart = echarts.init(chartRef.value)
   const levelColor = props.result.levelInfo.color
-  const remainColor = '#e8e8e8'
+  const remainColor = readCssVar('--app-chart-donut-track', '#e2e8f0')
 
   chart.setOption({
     series: [
@@ -156,7 +157,7 @@ function initChart() {
     <el-card shadow="never" class="suggestion-card">
       <template #header>
         <div class="suggestion-header">
-          <el-icon :size="18" color="#409EFF"><WarningFilled /></el-icon>
+          <el-icon class="suggestion-warn-icon" :size="18"><WarningFilled /></el-icon>
           <span>专业建议</span>
         </div>
       </template>
@@ -165,7 +166,7 @@ function initChart() {
 
     <!-- 免责声明 -->
     <div class="disclaimer">
-      <el-icon color="#909399"><WarningFilled /></el-icon>
+      <el-icon class="disclaimer-warn-icon"><WarningFilled /></el-icon>
       <p>本测评结果仅供参考，不构成临床诊断。如您感到严重不适，请及时寻求专业精神科医生或心理治疗师的帮助。24小时心理援助热线：400-161-9995</p>
     </div>
 
@@ -197,13 +198,13 @@ function initChart() {
 .result-title {
   font-size: 22px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin: 0 0 4px;
 }
 
 .result-subtitle {
   font-size: 14px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin: 0;
 }
 
@@ -213,8 +214,8 @@ function initChart() {
   gap: 32px;
   align-items: center;
   margin-bottom: 28px;
-  background: #fff;
-  border: 1px solid #ebeef5;
+  background: var(--app-color-bg-elevated);
+  border: 1px solid var(--app-color-border);
   border-radius: 12px;
   padding: 24px;
 }
@@ -231,7 +232,7 @@ function initChart() {
 
 .chart-label {
   font-size: 13px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin: 4px 0 0;
 }
 
@@ -263,17 +264,17 @@ function initChart() {
 
 .score-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-color-text-muted);
 }
 
 .score-value {
   font-size: 24px;
   font-weight: 700;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .score-value.highlight {
-  color: #409EFF;
+  color: var(--app-color-primary);
 }
 
 .score-bar {
@@ -285,7 +286,7 @@ function initChart() {
 .bar-track {
   flex: 1;
   height: 8px;
-  background: #ebeef5;
+  background: var(--app-color-fill-muted);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -298,7 +299,7 @@ function initChart() {
 
 .bar-percent {
   font-size: 13px;
-  color: #606266;
+  color: var(--app-color-el-text-regular);
   font-weight: 600;
   min-width: 36px;
 }
@@ -328,7 +329,7 @@ function initChart() {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -341,7 +342,7 @@ function initChart() {
 .segment-range {
   display: block;
   font-size: 10px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin-top: 2px;
 }
 
@@ -362,9 +363,13 @@ function initChart() {
   font-weight: 600;
 }
 
+.suggestion-warn-icon {
+  color: var(--app-color-primary);
+}
+
 .suggestion-text {
   font-size: 14px;
-  color: #606266;
+  color: var(--app-color-el-text-regular);
   line-height: 1.8;
   margin: 0;
 }
@@ -374,16 +379,21 @@ function initChart() {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
+  background: var(--app-color-warning-bg);
+  border: 1px solid var(--app-color-warning-border);
   border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 24px;
 }
 
+.disclaimer-warn-icon {
+  color: var(--app-color-text-muted);
+  flex-shrink: 0;
+}
+
 .disclaimer p {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   line-height: 1.6;
   margin: 0;
 }

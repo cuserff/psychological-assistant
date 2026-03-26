@@ -11,6 +11,7 @@ import { fetchSessions as apiFetchSessions, saveSessionsToServer, deleteSessionF
  * @property {string}      id        唯一标识
  * @property {MessageRole} role      角色
  * @property {string}      content   文本内容
+ * @property {string[]}    [images] 用户消息可选：图片地址（相对 /uploads/...、data URL、或 http(s)），展示与拼 prompt
  * @property {string}      timestamp ISO 时间戳
  *
  * @typedef {Object} ChatSession
@@ -41,9 +42,13 @@ export const useChatStore = defineStore('chat', () => {
     sessions.value.find(s => s.id === activeSessionId.value) || null
   )
 
-  const activeMessages = computed(() =>
-    activeSession.value?.messages || []
-  )
+  const activeMessages = computed(() => {
+    const list = activeSession.value?.messages || []
+    return list.filter(
+      (messageItem) =>
+        messageItem && typeof messageItem === 'object' && messageItem.role
+    )
+  })
 
   // ==================== 用户隔离存储 ====================
 
@@ -182,22 +187,42 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 向活跃会话追加一条用户消息，自动生成会话标题并持久化
    * @param {string} content 用户输入文本
+   * @param {Object} [options]
+   * @param {string[]} [options.images] 图片引用列表（服务端相对路径、data URL 等）
    */
-  function addUserMessage(content) {
+  function addUserMessage(content, { images = [] } = {}) {
     const session = activeSession.value
     if (!session) return
 
-    session.messages.push({
+    const text = (content || '').trim()
+    const imageList = Array.isArray(images)
+      ? images.filter((item) => typeof item === 'string' && item.length > 0)
+      : []
+
+    if (!text && imageList.length === 0) return
+
+    /** @type {Message} */
+    const message = {
       id: `msg_${Date.now()}`,
       role: 'user',
-      content: content.trim(),
+      content: text,
       timestamp: new Date().toISOString()
-    })
+    }
+    if (imageList.length > 0) {
+      message.images = imageList
+    }
+    session.messages.push(message)
     session.updatedAt = new Date().toISOString()
 
     if (session.title === '新对话') {
-      const trimmed = content.trim()
-      session.title = trimmed.length > 20 ? trimmed.slice(0, 20) + '...' : trimmed
+      if (text) {
+        session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
+      } else {
+        session.title =
+          imageList.length > 1
+            ? `图片（${imageList.length}张）`
+            : '图片'
+      }
     }
 
     saveSessions()
@@ -229,7 +254,10 @@ export const useChatStore = defineStore('chat', () => {
   function appendAssistantDelta(msgIndex, delta) {
     const session = activeSession.value
     if (!session || msgIndex < 0) return
-    session.messages[msgIndex].content += delta
+    const msg = session.messages[msgIndex]
+    if (!msg || msg.role !== 'assistant') return
+    if (typeof msg.content !== 'string') msg.content = ''
+    msg.content += delta
   }
 
   /**
@@ -239,9 +267,11 @@ export const useChatStore = defineStore('chat', () => {
   function finalizeReply(msgIndex, { aborted = false } = {}) {
     const session = activeSession.value
     if (!session || msgIndex < 0) return
+    const msg = session.messages[msgIndex]
+    if (!msg || msg.role !== 'assistant') return
 
-    if (!session.messages[msgIndex].content) {
-      session.messages[msgIndex].content = aborted
+    if (!msg.content) {
+      msg.content = aborted
         ? '已停止生成。'
         : '抱歉，回复生成失败，请稍后重试。'
     }

@@ -1,20 +1,19 @@
 <script setup>
-import { ref, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from './store/userStore'
 import { useChatStore } from './store/chatStore'
 import { ElMessage } from 'element-plus'
+import AppSidebarMenu from './components/layout/AppSidebarMenu.vue'
 import {
-  HomeFilled,
-  ChatRound,
   User,
-  Document,
   Setting,
   SwitchButton,
-  Management,
   Fold,
   Expand,
-  EditPen
+  Menu,
+  Sunny,
+  Moon
 } from '@element-plus/icons-vue'
 import avatarBoy from './assets/images/avatar-boy.svg'
 import avatarGirl from './assets/images/avatar-girl.svg'
@@ -25,6 +24,54 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const sidebarCollapsed = ref(false)
+
+const THEME_STORAGE_KEY = 'app_theme'
+const MOBILE_BREAKPOINT_QUERY = '(max-width: 992px)'
+
+const mobileNavOpen = ref(false)
+const isMobileLayout = ref(false)
+const isDarkTheme = ref(false)
+
+let mobileMediaQuery = null
+
+function updateMobileLayout() {
+  isMobileLayout.value = mobileMediaQuery?.matches ?? false
+  if (!isMobileLayout.value) {
+    mobileNavOpen.value = false
+  }
+}
+
+/** 与 Element Plus 的 html.dark 及 global.css 中 data-theme 选择器对齐 */
+function applyTheme(useDark) {
+  const root = document.documentElement
+  if (useDark) {
+    root.classList.add('dark')
+    root.dataset.theme = 'dark'
+  } else {
+    root.classList.remove('dark')
+    root.dataset.theme = 'light'
+  }
+  isDarkTheme.value = useDark
+  localStorage.setItem(THEME_STORAGE_KEY, useDark ? 'dark' : 'light')
+}
+
+function toggleTheme() {
+  applyTheme(!isDarkTheme.value)
+}
+
+function initTheme() {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  if (stored === 'dark') {
+    applyTheme(true)
+  } else if (stored === 'light') {
+    applyTheme(false)
+  } else {
+    applyTheme(false)
+  }
+}
+
+/** 顶栏左侧当前页标题（侧栏已有品牌全称，此处避免重复大标题） */
+const pageTitle = computed(() => route.meta?.title || '智能心理助手')
 
 // ==================== 10 分钟无操作自动退出（隐私保护） ====================
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000
@@ -139,9 +186,10 @@ function handleStorageEvent(event) {
   }
 }
 
-// 进入 AI 对话页时自动收起侧边栏，离开时自动展开
+// 进入 AI 对话页时自动收起侧边栏；路由变化时关闭移动端抽屉
 watch(() => route.path, (path) => {
   sidebarCollapsed.value = path === '/chat'
+  mobileNavOpen.value = false
 }, { immediate: true })
 
 watch(
@@ -162,6 +210,11 @@ watch(
 )
 
 onMounted(async () => {
+  initTheme()
+  mobileMediaQuery = window.matchMedia(MOBILE_BREAKPOINT_QUERY)
+  updateMobileLayout()
+  mobileMediaQuery.addEventListener('change', updateMobileLayout)
+
   // 全局监听跨标签页同步登出/活动时间（无需依赖某个具体页面）
   window.addEventListener('storage', handleStorageEvent)
 
@@ -175,6 +228,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  mobileMediaQuery?.removeEventListener('change', updateMobileLayout)
   unbindActivityListeners()
   clearInactivityTimer()
   window.removeEventListener('storage', handleStorageEvent)
@@ -199,8 +253,26 @@ function handleDropdownCommand(command) {
 
   <!-- 主布局 -->
   <div v-else class="app-container">
+    <el-drawer
+      v-model="mobileNavOpen"
+      direction="ltr"
+      size="var(--app-sidebar-width)"
+      :with-header="false"
+      append-to-body
+      class="app-mobile-drawer"
+    >
+      <div class="app-mobile-drawer-inner">
+        <div class="app-mobile-drawer-brand">智能心理助手</div>
+        <AppSidebarMenu :collapse="false" @navigate="mobileNavOpen = false" />
+      </div>
+    </el-drawer>
+
     <el-container style="height: 100vh;">
-      <el-aside :width="sidebarCollapsed ? '64px' : '200px'" class="app-sidebar">
+      <el-aside
+        v-show="!isMobileLayout"
+        :width="sidebarCollapsed ? 'var(--app-sidebar-collapsed-width)' : 'var(--app-sidebar-width)'"
+        class="app-sidebar"
+      >
         <div class="logo-container" :class="{ collapsed: sidebarCollapsed }">
           <h1 v-show="!sidebarCollapsed" class="logo-text">智能心理助手</h1>
           <el-icon
@@ -213,79 +285,64 @@ function handleDropdownCommand(command) {
           </el-icon>
         </div>
 
-        <el-menu
-          :default-active="route.path"
-          :collapse="sidebarCollapsed"
-          :collapse-transition="false"
-          class="sidebar-menu"
-          background-color="#001529"
-          text-color="#fff"
-          active-text-color="#ffd04b"
-          router
-        >
-          <el-menu-item index="/">
-            <el-icon><HomeFilled /></el-icon>
-            <template #title>首页</template>
-          </el-menu-item>
-
-          <el-menu-item index="/chat">
-            <el-icon><ChatRound /></el-icon>
-            <template #title>AI 对话</template>
-          </el-menu-item>
-
-          <el-menu-item index="/assessment">
-            <el-icon><EditPen /></el-icon>
-            <template #title>心理测评</template>
-          </el-menu-item>
-
-          <el-menu-item index="/profile">
-            <el-icon><User /></el-icon>
-            <template #title>个人中心</template>
-          </el-menu-item>
-
-          <el-menu-item index="/about">
-            <el-icon><Document /></el-icon>
-            <template #title>关于系统</template>
-          </el-menu-item>
-
-          <!-- 管理员专属菜单 -->
-          <el-divider v-if="userStore.isAdmin" style="border-color: #1f2d3d; margin: 8px 0;" />
-          <el-menu-item v-if="userStore.isAdmin" index="/admin">
-            <el-icon><Management /></el-icon>
-            <template #title>用户管理</template>
-          </el-menu-item>
-        </el-menu>
+        <AppSidebarMenu :collapse="sidebarCollapsed" />
       </el-aside>
 
       <el-container>
         <el-header class="app-header">
-          <div style="flex: 1;"></div>
-          <h2>智能心理助手</h2>
-          <div style="flex: 1;"></div>
+          <div class="app-header-left">
+            <el-button
+              v-if="isMobileLayout"
+              class="app-header-menu-btn"
+              text
+              circle
+              aria-label="打开导航菜单"
+              @click="mobileNavOpen = true"
+            >
+              <el-icon><Menu /></el-icon>
+            </el-button>
+            <span class="app-header-title" :title="pageTitle">{{ pageTitle }}</span>
+          </div>
 
-          <div class="header-user">
-            <el-dropdown @command="handleDropdownCommand" trigger="click">
-              <span class="user-dropdown-trigger">
-                <img :src="avatarMap[userStore.avatar]" class="user-mini-avatar" alt="头像" />
-                <span class="user-name">{{ userStore.nickname || '用户' }}</span>
-                <el-icon class="el-icon--right"><Setting /></el-icon>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="profile" :icon="User">
-                    个人中心
-                  </el-dropdown-item>
-                  <el-dropdown-item command="logout" :icon="SwitchButton" divided>
-                    退出登录
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+          <div class="app-header-right">
+            <el-button
+              class="app-header-theme-btn"
+              text
+              circle
+              :title="isDarkTheme ? '切换浅色' : '切换深色'"
+              @click="toggleTheme"
+            >
+              <el-icon><Moon v-if="!isDarkTheme" /><Sunny v-else /></el-icon>
+            </el-button>
+            <div class="header-user">
+              <el-dropdown @command="handleDropdownCommand" trigger="click">
+                <span class="user-dropdown-trigger">
+                  <img :src="avatarMap[userStore.avatar]" class="user-mini-avatar" alt="头像" />
+                  <span class="user-name">{{ userStore.nickname || '用户' }}</span>
+                  <el-icon class="el-icon--right"><Setting /></el-icon>
+                </span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="profile" :icon="User">
+                      个人中心
+                    </el-dropdown-item>
+                    <el-dropdown-item command="logout" :icon="SwitchButton" divided>
+                      退出登录
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </div>
         </el-header>
 
-        <el-main style="padding: 20px;">
-          <router-view />
+        <el-main
+          class="app-main"
+          :class="{ 'app-main--chat': route.path === '/chat' }"
+        >
+          <div class="app-main__shell">
+            <router-view />
+          </div>
         </el-main>
       </el-container>
     </el-container>
@@ -293,23 +350,84 @@ function handleDropdownCommand(command) {
 </template>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html, body {
-  height: 100%;
-  font-family: Arial, sans-serif;
-}
-
 .app-container {
   height: 100%;
 }
 
+/* 主区域列（顶栏 + el-main）：占满剩余高度并允许子项收缩，避免整页滚动条影响侧栏 */
+.app-container > .el-container > .el-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .el-main {
-  background-color: #f5f7fa;
+  background-color: var(--app-color-bg);
+}
+
+.el-main.app-main {
+  padding: var(--app-space-2);
+  min-height: 0;
+}
+
+/**
+ * 对话页：主内容区参与 flex 收缩（min-height:0），滚动仅发生在会话列表 / 消息列表内部，
+ * 避免整页出现纵向滚动条把布局「顶歪」或视觉上盖住左侧侧栏。
+ */
+.el-main.app-main--chat {
+  background-color: var(--app-color-bg-chat);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 业务页内容区限宽居中；对话全宽 */
+.app-main__shell {
+  max-width: var(--app-content-max-width);
+  margin: 0 auto;
+  width: 100%;
+  min-height: 100%;
+}
+
+.app-main--chat .app-main__shell {
+  max-width: none;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 移动端抽屉：去内边距，与桌面侧栏视觉一致 */
+.app-mobile-drawer.el-drawer {
+  --el-drawer-padding-primary: 0;
+}
+
+.app-mobile-drawer .el-drawer__body {
+  padding: 0;
+  height: 100%;
+}
+
+.app-mobile-drawer-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--app-sidebar-bg);
+}
+
+.app-mobile-drawer-brand {
+  flex-shrink: 0;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--app-sidebar-border);
+  color: var(--app-sidebar-text);
+  font-size: 18px;
+  font-weight: 600;
 }
 </style>
 
@@ -317,7 +435,7 @@ html, body {
 /* ==================== 侧边栏 ==================== */
 
 .app-sidebar {
-  background-color: #001529;
+  background-color: var(--app-sidebar-bg);
   transition: width 0.3s ease;
   overflow-x: hidden;
 }
@@ -327,7 +445,7 @@ html, body {
   display: flex;
   align-items: center;
   padding: 0 16px;
-  border-bottom: 1px solid #1f2d3d;
+  border-bottom: 1px solid var(--app-sidebar-border);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -338,7 +456,7 @@ html, body {
 }
 
 .logo-text {
-  color: #fff;
+  color: var(--app-sidebar-text);
   font-size: 18px;
   font-weight: 600;
   margin: 0;
@@ -346,38 +464,66 @@ html, body {
 }
 
 .collapse-toggle {
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--app-sidebar-text-muted);
   cursor: pointer;
   flex-shrink: 0;
   transition: color 0.2s;
 }
 
 .collapse-toggle:hover {
-  color: #fff;
-}
-
-.sidebar-menu {
-  border-right: none;
-}
-
-/* 修正收起状态下菜单的居中 */
-.sidebar-menu:not(.el-menu--collapse) {
-  width: 200px;
+  color: var(--app-sidebar-text);
 }
 
 /* ==================== 顶栏 ==================== */
 
 .app-header {
-  background-color: #fff;
-  border-bottom: 1px solid #e6e6e6;
+  --app-header-pad-x: var(--app-space-2);
+  height: var(--app-header-height);
+  min-height: var(--app-header-height);
+  background-color: var(--app-color-bg-elevated);
+  border-bottom: 1px solid var(--app-color-border);
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  justify-content: space-between;
+  padding: 0 var(--app-header-pad-x);
+  gap: var(--app-space-2);
+}
+
+.app-header-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+}
+
+.app-header-menu-btn {
+  flex-shrink: 0;
+  color: var(--app-color-text);
+}
+
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  flex-shrink: 0;
+}
+
+.app-header-theme-btn {
+  color: var(--app-color-text);
+}
+
+.app-header-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--app-color-text);
+  letter-spacing: 0.02em;
 }
 
 .header-user {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .user-dropdown-trigger {
@@ -385,12 +531,12 @@ html, body {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  color: #333;
+  color: var(--app-color-text);
   font-size: 14px;
 }
 
 .user-dropdown-trigger:hover {
-  color: #0284c7;
+  color: var(--app-color-primary);
 }
 
 .user-mini-avatar {
@@ -398,7 +544,7 @@ html, body {
   height: 30px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--app-color-border);
 }
 
 .user-name {

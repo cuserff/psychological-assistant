@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useCheckinStore } from '../../store/checkinStore'
+import { getTodayLocalDate } from '../../utils/date'
 import { ElMessage } from 'element-plus'
 import { EditPen } from '@element-plus/icons-vue'
 
@@ -14,6 +15,15 @@ const props = defineProps({
   todayRecord: {
     type: Object,
     default: null
+  },
+  /**
+   * 是否在「今日已打卡」时锁定编辑（用于首页避免重复提交）
+   * - true：默认展示“已完成”，需要点击“修改”才可更新
+   * - false：保持原行为（允许直接更新）
+   */
+  lockWhenCheckedIn: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -33,12 +43,23 @@ const moodOptions = [
 const selectedMood = ref(0)
 const noteText = ref('')
 const submitting = ref(false)
+const isEditing = ref(true)
+
+const isLocked = computed(() => props.lockWhenCheckedIn && props.todayCheckedIn && !isEditing.value)
+const submitButtonText = computed(() => {
+  if (props.todayCheckedIn && props.lockWhenCheckedIn && !isEditing.value) return '已完成'
+  return props.todayCheckedIn ? '更新打卡' : '提交打卡'
+})
 
 // 已打卡时回填数据
 onMounted(() => {
   if (props.todayRecord) {
     selectedMood.value = props.todayRecord.mood
     noteText.value = props.todayRecord.note || ''
+  }
+  // 首页锁定模式：今日已打卡则默认锁定；个人中心保持可编辑
+  if (props.lockWhenCheckedIn && props.todayCheckedIn) {
+    isEditing.value = false
   }
 })
 
@@ -50,18 +71,23 @@ watch(() => props.todayRecord, (record) => {
   }
 })
 
+watch(() => props.todayCheckedIn, (checked) => {
+  if (props.lockWhenCheckedIn) {
+    isEditing.value = !checked
+  }
+})
+
 /**
  * 提交打卡
  * 前端计算今天的本地日期，传给后端，避免时区问题
  */
 async function handleSubmit() {
+  if (isLocked.value) return
   if (selectedMood.value === 0) return
 
   submitting.value = true
   try {
-    // 使用本地日期，避免 UTC 时区偏移导致日期不一致
-    const now = new Date()
-    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const localDate = getTodayLocalDate()
 
     await checkinStore.checkin({
       date: localDate,
@@ -71,11 +97,19 @@ async function handleSubmit() {
 
     ElMessage.success(props.todayCheckedIn ? '打卡已更新' : '打卡成功')
     emit('checkin-success')
+
+    if (props.lockWhenCheckedIn) {
+      isEditing.value = false
+    }
   } catch (error) {
     ElMessage.error(error.message || '打卡失败')
   } finally {
     submitting.value = false
   }
+}
+
+function enableEditing() {
+  isEditing.value = true
 }
 </script>
 
@@ -88,6 +122,16 @@ async function handleSubmit() {
         <el-tag v-if="todayCheckedIn" type="success" size="small" style="margin-left: auto;">
           已打卡
         </el-tag>
+        <el-button
+          v-if="lockWhenCheckedIn && todayCheckedIn && !isEditing"
+          link
+          type="primary"
+          size="small"
+          style="margin-left: 8px;"
+          @click="enableEditing"
+        >
+          修改
+        </el-button>
       </div>
     </template>
 
@@ -97,8 +141,8 @@ async function handleSubmit() {
         v-for="item in moodOptions"
         :key="item.value"
         class="mood-item"
-        :class="{ active: selectedMood === item.value }"
-        @click="selectedMood = item.value"
+        :class="{ active: selectedMood === item.value, locked: isLocked }"
+        @click="!isLocked && (selectedMood = item.value)"
       >
         <span class="mood-emoji">{{ item.emoji }}</span>
         <span class="mood-label">{{ item.label }}</span>
@@ -113,6 +157,7 @@ async function handleSubmit() {
       placeholder="记录一下今天的心情吧...（选填）"
       maxlength="200"
       show-word-limit
+      :disabled="isLocked"
       style="margin-top: 16px;"
     />
 
@@ -120,11 +165,11 @@ async function handleSubmit() {
     <el-button
       type="primary"
       :loading="submitting"
-      :disabled="selectedMood === 0"
+      :disabled="isLocked || selectedMood === 0"
       style="margin-top: 16px; width: 100%;"
       @click="handleSubmit"
     >
-      {{ todayCheckedIn ? '更新打卡' : '提交打卡' }}
+      {{ submitButtonText }}
     </el-button>
   </el-card>
 </template>
@@ -157,6 +202,11 @@ async function handleSubmit() {
   opacity: 0.6;
 }
 
+.mood-item.locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .mood-item:hover {
   opacity: 0.85;
   background-color: #f1f5f9;
@@ -182,7 +232,7 @@ async function handleSubmit() {
 }
 
 .mood-item.active .mood-label {
-  color: #0284c7;
+  color: var(--app-color-primary);
   font-weight: 600;
 }
 </style>

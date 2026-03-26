@@ -43,7 +43,11 @@ API_SECRET=your_xunfei_api_secret
 ### 3. 启动服务
 
 ```bash
-# 开发模式启动
+#后端运行
+cd backend
+node index.js
+# 前端运行
+cd ..
 npm run dev
 
 # 生产模式启动

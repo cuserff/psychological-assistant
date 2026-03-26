@@ -22,7 +22,7 @@
 .typing-dot {
   width: 8px;
   height: 8px;
-  background-color: #0284c7;
+  background-color: var(--app-color-primary);
   border-radius: 50%;
   animation: typing 1.4s infinite ease-in-out;
 }

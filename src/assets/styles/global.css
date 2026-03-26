@@ -1,107 +1,263 @@
+/**
+ * 全局设计 tokens + Element Plus 主题对齐
+ * 须在 main.js 中于 element-plus/dist/index.css 之后引入，以便覆盖 --el-*
+ */
+
+/* ========== 设计 tokens（换主题 / 浅色深色只改此处）========== */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.6;
-  font-weight: 400;
+  /* 字体：全站统一，勿在组件再写 Arial */
+  --app-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --app-font-size-root: 16px;
+  --app-line-height: 1.6;
 
-  color-scheme: light;
-  color: #213547;
-  background-color: #f5f5f5;
+  /* 品牌色：柔和蓝绿（心理咨询气质） */
+  --app-color-primary: #0f766e;
+  --app-color-primary-hover: #0d9488;
+  --app-color-primary-active: #115e59;
+  --app-color-primary-muted: #ccfbf1;
+  --app-color-primary-soft-bg: #f0fdfa;
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* 背景与表面 */
+  --app-color-bg: #f0f4f8;
+  --app-color-bg-elevated: #ffffff;
+  --app-color-bg-chat: #ffffff;
+
+  /* 文字 */
+  --app-color-text: #0f172a;
+  --app-color-text-secondary: #64748b;
+  --app-color-text-muted: #94a3b8;
+
+  /* 边框与分割 */
+  --app-color-border: #e2e8f0;
+  --app-color-border-strong: #cbd5e1;
+
+  /* 侧栏（深色后台风，色相与主色同族） */
+  --app-sidebar-bg: #0c1929;
+  --app-sidebar-bg-hover: #152535;
+  --app-sidebar-border: #1e3a4a;
+  --app-sidebar-text: rgba(255, 255, 255, 0.85);
+  --app-sidebar-text-muted: rgba(255, 255, 255, 0.55);
+  --app-sidebar-active: #5eead4;
+
+  /* 圆角 */
+  --app-radius-sm: 6px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 16px;
+  --app-radius-pill: 999px;
+
+  /* 间距（8 的倍数） */
+  --app-space-1: 8px;
+  --app-space-2: 16px;
+  --app-space-3: 24px;
+  --app-space-4: 32px;
+
+  /* 布局 */
+  --app-header-height: 56px;
+  --app-content-max-width: 1200px;
+  --app-sidebar-width: 200px;
+  --app-sidebar-collapsed-width: 64px;
+
+  /* 焦点环（无障碍，勿全局去掉 outline） */
+  --app-focus-ring: 0 0 0 3px color-mix(in srgb, var(--app-color-primary) 35%, transparent);
+
+  /* ---------- 与 Element Plus 对齐（覆盖 index.css 默认值）---------- */
+  --el-color-primary: #0f766e;
+  --el-color-primary-light-3: #2dd4bf;
+  --el-color-primary-light-5: #5eead4;
+  --el-color-primary-light-7: #99f6e4;
+  --el-color-primary-light-8: #ccfbf1;
+  --el-color-primary-light-9: #f0fdfa;
+  --el-color-primary-dark-2: #0d5c56;
+  --el-border-radius-base: var(--app-radius-sm);
+
+  /* 图表 / 情绪刻度（热力图与环图轨道） */
+  --app-chart-donut-track: #e2e8f0;
+  --app-heatmap-cell-bg: #ebedf0;
+  --app-heatmap-cell-border: #ffffff;
+  --app-heatmap-split: #e5e7eb;
+  --app-mood-1: #ef4444;
+  --app-mood-2: #f97316;
+  --app-mood-3: #eab308;
+  --app-mood-4: #22c55e;
+  --app-mood-5: #16a34a;
+
+  /* 提示条、浅底色块（对齐 Element warning 气质） */
+  --app-color-warning-bg: #fffbeb;
+  --app-color-warning-border: #fde68a;
+  --app-color-on-primary: #ffffff;
+
+  /* 与历史 Element 灰阶对齐的填充、边框（逐步迁移到 token） */
+  --app-color-fill-muted: #f1f5f9;
+  --app-el-border-light: #dcdfe6;
+  --app-color-el-text-regular: #606266;
+
+  /* Markdown 代码块（与正文表面区分） */
+  --app-code-block-bg: #1e293b;
+  --app-code-block-fg: #e2e8f0;
+  --app-markdown-code-inline-fg: #be123c;
+
+  /* 对话气泡：最大宽度（行宽舒适区） */
+  --app-chat-bubble-max: min(680px, 78%);
+  /* 用户气泡：低饱和柔和底 + 深色字（心理向、Relaxing） */
+  --app-chat-user-bubble-bg: #e9f1ee;
+  --app-chat-user-bubble-text: #334155;
+  --app-chat-user-bubble-border: rgba(100, 116, 139, 0.2);
+  --app-chat-user-bubble-shadow: 0 2px 10px rgba(15, 23, 42, 0.07);
+  --app-chat-user-img-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
 }
 
-* {
+/* ========== 深色主题：与 html.dark（Element Plus）+ data-theme=dark 同步 ========== */
+html.dark,
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --app-color-primary: #2dd4bf;
+  --app-color-primary-hover: #5eead4;
+  --app-color-primary-active: #14b8a6;
+  --app-color-primary-muted: #134e4a;
+  --app-color-primary-soft-bg: #134e4a;
+
+  --app-color-bg: #0f172a;
+  --app-color-bg-elevated: #1e293b;
+  --app-color-bg-chat: #1e293b;
+
+  --app-color-text: #f1f5f9;
+  --app-color-text-secondary: #94a3b8;
+  --app-color-text-muted: #64748b;
+
+  --app-color-border: #334155;
+  --app-color-border-strong: #475569;
+
+  --app-sidebar-bg: #020617;
+  --app-sidebar-bg-hover: #0f172a;
+  --app-sidebar-border: #1e293b;
+  --app-sidebar-text: rgba(248, 250, 252, 0.92);
+  --app-sidebar-text-muted: rgba(248, 250, 252, 0.55);
+  --app-sidebar-active: #5eead4;
+
+  --app-focus-ring: 0 0 0 3px color-mix(in srgb, var(--app-color-primary) 45%, transparent);
+
+  --el-color-primary: #2dd4bf;
+  --el-color-primary-light-3: #5eead4;
+  --el-color-primary-light-5: #7dd3fc;
+  --el-color-primary-light-7: #99f6e4;
+  --el-color-primary-light-8: #134e4a;
+  --el-color-primary-light-9: #0f172a;
+  --el-color-primary-dark-2: #14b8a6;
+
+  --app-chart-donut-track: #334155;
+  --app-heatmap-cell-bg: #1e293b;
+  --app-heatmap-cell-border: #0f172a;
+  --app-heatmap-split: #475569;
+
+  --app-color-warning-bg: rgba(251, 191, 36, 0.12);
+  --app-color-warning-border: rgba(251, 191, 36, 0.35);
+  --app-color-on-primary: #0f172a;
+
+  --app-color-fill-muted: #1e293b;
+  --app-el-border-light: #475569;
+  --app-color-el-text-regular: #94a3b8;
+
+  --app-code-block-bg: #020617;
+  --app-code-block-fg: #e2e8f0;
+  --app-markdown-code-inline-fg: #fb7185;
+
+  --app-chat-user-bubble-bg: #2a3834;
+  --app-chat-user-bubble-text: #e2e8f0;
+  --app-chat-user-bubble-border: rgba(148, 163, 184, 0.18);
+  --app-chat-user-bubble-shadow: 0 2px 14px rgba(0, 0, 0, 0.25);
+  --app-chat-user-img-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* ========== 基础重置 ========== */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+html {
+  font-size: var(--app-font-size-root);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  padding: 0; /* 移除白边 */
+  font-family: var(--app-font-sans);
+  font-size: 1rem;
+  line-height: var(--app-line-height);
+  font-weight: 400;
+  color: var(--app-color-text);
+  background-color: var(--app-color-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   overflow: hidden;
 }
 
 h1 {
-  font-size: 2em;
-  line-height: 1.2;
-  margin-bottom: 20px;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin-bottom: var(--app-space-2);
 }
 
-input {
+a {
+  color: var(--app-color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--app-color-primary-hover);
+}
+
+/* 原生控件：仅在为「非 Element」预留的容器内生效，避免与 el-input / el-button 冲突 */
+.app-native input:not([class*='el-']) {
   font-family: inherit;
-  font-size: 16px;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  font-size: 1rem;
+  padding: 10px var(--app-space-2);
+  border: 1px solid var(--app-color-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-bg-elevated);
+  color: var(--app-color-text);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.app-native input:not([class*='el-']):focus {
   outline: none;
-  transition: border-color 0.3s;
+  border-color: var(--app-color-primary);
+  box-shadow: var(--app-focus-ring);
 }
 
-input:focus {
-  border-color: #42b883;
+.app-native input:not([class*='el-']):focus-visible {
+  outline: none;
+  box-shadow: var(--app-focus-ring);
 }
 
+/* 未加 .app-native 的裸 button 只做最小重置，不写死品牌色与 padding */
 button {
-  border-radius: 4px;
-  border: none;
-  padding: 10px 20px;
-  font-size: 16px;
-  font-weight: 500;
   font-family: inherit;
-  background-color: #42b883;
-  color: white;
   cursor: pointer;
-  transition: background-color 0.3s;
 }
 
-button:hover {
-  background-color: #35495e;
-}
-
-button:active {
-  transform: scale(0.98);
-}
-
-/* 响应式设计 */
-@media (max-width: 600px) {
-  body {
-    padding: 0;
-  }
-  
-  h1 {
-    font-size: 1.5em;
-  }
-  
-  .todo-input {
-    flex-direction: column;
-    gap: 10px;
-  }
-  
-  .todo-input input {
-    width: 100%;
-  }
-  
-  .todo-input button {
-    width: 100%;
-  }
-}
-button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: 2px solid var(--app-color-primary);
+  outline-offset: 2px;
 }
+
+/** 登录等页若使用原生 button，可在外层包 class="app-native" */
 
 .card {
-  padding: 2em;
+  padding: var(--app-space-4);
 }
 
 #app {
@@ -113,15 +269,83 @@ button:focus-visible {
   overflow: hidden;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/**
+ * 全局细滚动条（Firefox + WebKit）
+ * Element Plus 的 .el-main 默认 overflow:auto，在 Windows 上易出现粗大系统滚动条；
+ * html 在极个别布局下也会出现视口条，一并统一为细轨半透明拇指。
+ */
+html,
+.el-main,
+.app-container,
+.el-scrollbar__wrap,
+.el-dialog__body,
+.el-drawer__body {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--app-color-text-muted) 50%, transparent)
+    transparent;
+}
+
+html::-webkit-scrollbar,
+.el-main::-webkit-scrollbar,
+.app-container::-webkit-scrollbar,
+.el-scrollbar__wrap::-webkit-scrollbar,
+.el-dialog__body::-webkit-scrollbar,
+.el-drawer__body::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+html::-webkit-scrollbar-track,
+.el-main::-webkit-scrollbar-track,
+.app-container::-webkit-scrollbar-track,
+.el-scrollbar__wrap::-webkit-scrollbar-track,
+.el-dialog__body::-webkit-scrollbar-track,
+.el-drawer__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb,
+.el-main::-webkit-scrollbar-thumb,
+.app-container::-webkit-scrollbar-thumb,
+.el-scrollbar__wrap::-webkit-scrollbar-thumb,
+.el-dialog__body::-webkit-scrollbar-thumb,
+.el-drawer__body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--app-color-text) 18%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+html::-webkit-scrollbar-thumb:hover,
+.el-main::-webkit-scrollbar-thumb:hover,
+.app-container::-webkit-scrollbar-thumb:hover,
+.el-scrollbar__wrap::-webkit-scrollbar-thumb:hover,
+.el-dialog__body::-webkit-scrollbar-thumb:hover,
+.el-drawer__body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--app-color-text) 28%, transparent);
+  background-clip: padding-box;
+}
+
+/* 遗留工具类（若仍有引用） */
+@media (max-width: 600px) {
+  body {
+    padding: 0;
   }
-  a:hover {
-    color: #747bff;
+
+  h1 {
+    font-size: 1.35rem;
   }
-  button {
-    background-color: #f9f9f9;
+
+  .todo-input {
+    flex-direction: column;
+    gap: var(--app-space-2);
+  }
+
+  .todo-input input {
+    width: 100%;
+  }
+
+  .todo-input button {
+    width: 100%;
   }
 }

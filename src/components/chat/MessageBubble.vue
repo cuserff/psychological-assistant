@@ -61,7 +61,7 @@ defineProps({
 }
 
 .user-bubble .bubble-content {
-  background-color: #0284c7;
+  background-color: var(--app-color-primary);
   color: white;
 }
 </style>

@@ -171,7 +171,7 @@ onBeforeUnmount(() => {
         :percentage="progressPercent"
         :stroke-width="8"
         :show-text="false"
-        color="#409EFF"
+        color="var(--el-color-primary)"
       />
     </div>
 
@@ -262,7 +262,7 @@ onBeforeUnmount(() => {
 .test-title {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin: 0;
 }
 
@@ -274,22 +274,22 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin-bottom: 6px;
 }
 
 .test-instruction {
   font-size: 14px;
-  color: #606266;
-  background: #f5f7fa;
+  color: var(--app-color-el-text-regular);
+  background: var(--app-color-fill-muted);
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 24px;
 }
 
 .question-area {
-  background: #fff;
-  border: 1px solid #ebeef5;
+  background: var(--app-color-bg-elevated);
+  border: 1px solid var(--app-color-border);
   border-radius: 12px;
   padding: 28px 24px;
   margin-bottom: 20px;
@@ -297,8 +297,8 @@ onBeforeUnmount(() => {
 
 .question-number {
   display: inline-block;
-  background: #409EFF;
-  color: #fff;
+  background: var(--app-color-primary);
+  color: var(--app-color-on-primary);
   font-size: 13px;
   font-weight: 600;
   padding: 2px 10px;
@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
 
 .question-text {
   font-size: 16px;
-  color: #303133;
+  color: var(--app-color-text);
   line-height: 1.6;
   margin: 0 0 20px;
 }
@@ -324,27 +324,27 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--app-el-border-light);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.25s ease;
 }
 
 .option-item:hover {
-  border-color: #409EFF;
-  background: #f0f7ff;
+  border-color: var(--app-color-primary);
+  background: var(--app-color-primary-soft-bg);
 }
 
 .option-item.active {
-  border-color: #409EFF;
-  background: #ecf5ff;
-  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.15);
+  border-color: var(--app-color-primary);
+  background: color-mix(in srgb, var(--app-color-primary) 12%, var(--app-color-bg-elevated));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-color-primary) 22%, transparent);
 }
 
 .option-radio {
   width: 20px;
   height: 20px;
-  border: 2px solid #dcdfe6;
+  border: 2px solid var(--app-el-border-light);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -354,19 +354,19 @@ onBeforeUnmount(() => {
 }
 
 .option-item.active .option-radio {
-  border-color: #409EFF;
+  border-color: var(--app-color-primary);
 }
 
 .radio-dot {
   width: 10px;
   height: 10px;
-  background: #409EFF;
+  background: var(--app-color-primary);
   border-radius: 50%;
 }
 
 .option-label {
   font-size: 14px;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .nav-buttons {
@@ -386,21 +386,21 @@ onBeforeUnmount(() => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #dcdfe6;
+  background: var(--app-el-border-light);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .dot:hover {
-  background: #a0cfff;
+  background: var(--el-color-primary-light-5);
 }
 
 .dot.answered {
-  background: #a0cfff;
+  background: var(--el-color-primary-light-5);
 }
 
 .dot.current {
-  background: #409EFF;
+  background: var(--el-color-primary);
   transform: scale(1.3);
 }
 </style>

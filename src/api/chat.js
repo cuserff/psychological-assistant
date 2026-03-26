@@ -28,15 +28,39 @@ export function sendChatRequest(messages, { signal } = {}) {
  * @returns {string|null} 增量文本，null 表示流结束或无效行
  */
 export function parseSSELine(line) {
-  if (!line.startsWith('data: ')) return null
-  const data = line.slice(6).trim()
-  if (data === '[DONE]') return null
+  const trimmed = line.trim()
+  if (!trimmed || trimmed.startsWith(':')) return null
+  if (!trimmed.startsWith('data:')) return null
+  // 兼容 data: 与 data:<无空格>
+  const payload = trimmed.slice(5).replace(/^\s*/, '')
+  if (payload === '[DONE]') return null
 
   try {
-    const json = JSON.parse(data)
-    if (json.error) throw new Error(json.error)
-    return json.choices?.[0]?.delta?.content || null
-  } catch {
+    const json = JSON.parse(payload)
+    if (json.error) {
+      const err = json.error
+      const message =
+        typeof err === 'string'
+          ? err
+          : (err.message || err.msg || JSON.stringify(err))
+      const businessError = new Error(message)
+      businessError.isUpstreamSseError = true
+      throw businessError
+    }
+    const choice = json.choices?.[0]
+    const delta = choice?.delta
+    const piece =
+      (typeof delta?.content === 'string' ? delta.content : '')
+      || (typeof delta?.text === 'string' ? delta.text : '')
+      || (typeof choice?.text === 'string' ? choice.text : '')
+    return piece || null
+  } catch (parseOrBusinessError) {
+    if (
+      parseOrBusinessError instanceof Error
+      && parseOrBusinessError.isUpstreamSseError
+    ) {
+      throw parseOrBusinessError
+    }
     return null
   }
 }
@@ -61,4 +85,49 @@ export function deleteSessionFromServer(sessionId) {
   return request(`/api/chat/sessions/${sessionId}`, {
     method: 'DELETE'
   })
+}
+
+/**
+ * 上传聊天配图（multipart，字段名 files）
+ * @param {Array<{ blob: Blob, name?: string }>} items
+ * @returns {Promise<{ url: string, originalName?: string, mime?: string, size?: number }[]>}
+ */
+export async function uploadChatImages(items) {
+  const token = getToken()
+  const formData = new FormData()
+  for (const item of items) {
+    if (!item?.blob) continue
+    const fileName = item.name || `image-${Date.now()}.jpg`
+    formData.append('files', item.blob, fileName)
+  }
+
+  const headers = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  let response
+  try {
+    response = await fetch(`${BASE_URL}/api/chat/upload`, {
+      method: 'POST',
+      headers,
+      body: formData
+    })
+  } catch (networkError) {
+    throw new Error(networkError?.message || '网络异常，上传失败')
+  }
+
+  let body
+  try {
+    body = await response.json()
+  } catch {
+    throw new Error('服务器返回非 JSON')
+  }
+
+  if (!response.ok) {
+    throw new Error(body?.message || `上传失败 (${response.status})`)
+  }
+
+  const files = body?.data?.files
+  return Array.isArray(files) ? files : []
 }

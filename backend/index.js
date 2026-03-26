@@ -5,12 +5,17 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
 const app = express();
 const API_KEY = process.env.XUNFEI_API_KEY;
+/** 讯飞 MaaS：模型与网关路径建议配在 .env，避免改代码 */
+const MAAS_MODEL = process.env.XUNFEI_MAAS_MODEL || 'xopqwen35v35b';
+const MAAS_HOST = process.env.XUNFEI_MAAS_HOST || 'maas-api.cn-huabei-1.xf-yun.com';
+const MAAS_PATH = process.env.XUNFEI_MAAS_PATH || '/v2/chat/completions';
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'mental-health-assistant-jwt-secret';
 
@@ -18,6 +23,9 @@ const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const CHECKINS_DIR = path.join(DATA_DIR, 'checkins');
+const ASSESSMENTS_DIR = path.join(DATA_DIR, 'assessments');
+/** 聊天配图持久化目录：uploads/chat/{userId}/文件名 */
+const CHAT_UPLOAD_ROOT = path.join(DATA_DIR, 'uploads', 'chat');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -27,6 +35,12 @@ if (!fs.existsSync(CHATS_DIR)) {
 }
 if (!fs.existsSync(CHECKINS_DIR)) {
   fs.mkdirSync(CHECKINS_DIR, { recursive: true });
+}
+if (!fs.existsSync(ASSESSMENTS_DIR)) {
+  fs.mkdirSync(ASSESSMENTS_DIR, { recursive: true });
+}
+if (!fs.existsSync(CHAT_UPLOAD_ROOT)) {
+  fs.mkdirSync(CHAT_UPLOAD_ROOT, { recursive: true });
 }
 if (!fs.existsSync(USERS_FILE)) {
   fs.writeFileSync(USERS_FILE, '[]', 'utf-8');
@@ -38,7 +52,36 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
+// 对话含多模态时 body 可达数 MB，默认 100kb 会导致解析失败并悄悄走前端「纯文本降级」，模型永远“看不见图”
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '15mb' }));
+
+// 聊天上传的图片静态访问（路径含随机 UUID，勿在公开场合分享链接）
+app.use('/uploads', express.static(path.join(DATA_DIR, 'uploads')));
+
+const chatImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = path.join(CHAT_UPLOAD_ROOT, req.user.id);
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+      const useExt = allowed.includes(ext) ? ext : '.jpg';
+      cb(null, `${crypto.randomUUID()}${useExt}`);
+    }
+  }),
+  limits: { fileSize: 8 * 1024 * 1024, files: 12 },
+  fileFilter: (req, file, cb) => {
+    const mime = (file.mimetype || '').toLowerCase();
+    if (mime.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持上传图片文件'));
+    }
+  }
+});
 
 // ==================== 工具函数 ====================
 
@@ -76,8 +119,26 @@ function writeUserCheckins(userId, checkins) {
   fs.writeFileSync(filePath, JSON.stringify(checkins, null, 2), 'utf-8');
 }
 
+// 读取指定用户的测评记录，文件不存在则返回空数组
+function readUserAssessments(userId) {
+  const filePath = path.join(ASSESSMENTS_DIR, `${userId}.json`);
+  if (!fs.existsSync(filePath)) return [];
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+// 写入指定用户的测评记录
+function writeUserAssessments(userId, records) {
+  const filePath = path.join(ASSESSMENTS_DIR, `${userId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(records, null, 2), 'utf-8');
+}
+
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+}
+
+function getTodayLocalDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 function generateToken(user) {
@@ -365,7 +426,49 @@ app.delete('/api/admin/users/:userId', adminMiddleware, (req, res) => {
   users.splice(userIndex, 1);
   writeUsers(users);
 
+  // 尝试清理用户数据文件（聊天/打卡/测评/聊天上传图），失败不影响删除流程
+  try { fs.unlinkSync(path.join(CHATS_DIR, `${userId}.json`)); } catch {}
+  try { fs.unlinkSync(path.join(CHECKINS_DIR, `${userId}.json`)); } catch {}
+  try { fs.unlinkSync(path.join(ASSESSMENTS_DIR, `${userId}.json`)); } catch {}
+  try {
+    fs.rmSync(path.join(CHAT_UPLOAD_ROOT, userId), { recursive: true, force: true });
+  } catch {}
+
   res.json({ code: 200, message: '用户已删除' });
+});
+
+/**
+ * 管理员获取指定用户的最新测评摘要
+ * GET /api/admin/users/:userId/assessment/latest
+ */
+app.get('/api/admin/users/:userId/assessment/latest', adminMiddleware, (req, res) => {
+  const { userId } = req.params;
+  const records = readUserAssessments(userId);
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.json({ code: 200, message: '获取成功', data: null });
+  }
+
+  const latest = records
+    .slice()
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
+
+  if (!latest) {
+    return res.json({ code: 200, message: '获取成功', data: null });
+  }
+
+  const data = {
+    id: latest.id,
+    userId: latest.userId,
+    scaleId: latest.scaleId,
+    scaleName: latest.scaleName,
+    level: latest.level,
+    severity: latest.severity,
+    rawScore: latest.rawScore,
+    standardScore: latest.standardScore ?? null,
+    createdAt: latest.createdAt
+  };
+
+  res.json({ code: 200, message: '获取成功', data });
 });
 
 // ==================== 聊天会话持久化接口 ====================
@@ -386,6 +489,38 @@ app.put('/api/chat/sessions', authMiddleware, (req, res) => {
 
   writeUserChats(req.user.id, sessions);
   res.json({ code: 200, message: '保存成功' });
+});
+
+/**
+ * 聊天配图上传（仅图片，需登录）
+ * POST /api/chat/upload  multipart 字段名 files
+ */
+app.post('/api/chat/upload', authMiddleware, (req, res, next) => {
+  chatImageUpload.array('files', 12)(req, res, (err) => {
+    if (err) {
+      const message = err instanceof multer.MulterError
+        ? `上传限制：${err.message}`
+        : (err.message || '上传失败');
+      return res.status(400).json({ code: 400, message });
+    }
+    next();
+  });
+}, (req, res) => {
+  const files = req.files || [];
+  if (files.length === 0) {
+    return res.status(400).json({ code: 400, message: '未收到图片文件' });
+  }
+  const list = files.map((f) => ({
+    url: `/uploads/chat/${req.user.id}/${f.filename}`,
+    originalName: f.originalname,
+    mime: f.mimetype,
+    size: f.size
+  }));
+  res.json({
+    code: 200,
+    message: '上传成功',
+    data: { files: list }
+  });
 });
 
 // 删除指定会话
@@ -429,7 +564,7 @@ app.post('/api/checkin', authMiddleware, (req, res) => {
   }
 
   // 不允许打卡未来日期
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayLocalDate();
   if (date > today) {
     return res.status(400).json({ code: 400, message: '不能打卡未来日期' });
   }
@@ -485,11 +620,11 @@ app.get('/api/user/stats', authMiddleware, (req, res) => {
   const checkinDays = checkins.length;
 
   // 连续打卡天数：从今天向前数连续的天数
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayLocalDate();
   const checkinDateSet = new Set(checkins.map(c => c.date));
   let streakDays = 0;
-  const cursor = new Date(today);
-  while (checkinDateSet.has(cursor.toISOString().slice(0, 10))) {
+  const cursor = new Date(`${today}T00:00:00`);
+  while (checkinDateSet.has(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)) {
     streakDays++;
     cursor.setDate(cursor.getDate() - 1);
   }
@@ -497,9 +632,9 @@ app.get('/api/user/stats', authMiddleware, (req, res) => {
   // 近 7 天平均情绪指数
   const last7Days = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(today);
+    const d = new Date(`${today}T00:00:00`);
     d.setDate(d.getDate() - i);
-    last7Days.push(d.toISOString().slice(0, 10));
+    last7Days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
   }
   const last7Checkins = checkins.filter(c => last7Days.includes(c.date));
   const avgMood7d = last7Checkins.length > 0
@@ -513,6 +648,101 @@ app.get('/api/user/stats', authMiddleware, (req, res) => {
   });
 });
 
+// ==================== 心理测评接口 ====================
+
+/**
+ * 提交测评结果（保存一条记录）
+ * POST /api/assessment
+ */
+app.post('/api/assessment', authMiddleware, (req, res) => {
+  const { scaleId, scaleName, answers, rawScore, standardScore, level, severity } = req.body || {};
+
+  if (!scaleId || typeof scaleId !== 'string') {
+    return res.status(400).json({ code: 400, message: 'scaleId 不能为空' });
+  }
+  if (!scaleName || typeof scaleName !== 'string') {
+    return res.status(400).json({ code: 400, message: 'scaleName 不能为空' });
+  }
+  if (!Array.isArray(answers) || answers.length === 0) {
+    return res.status(400).json({ code: 400, message: 'answers 必须为非空数组' });
+  }
+  if (!Number.isFinite(Number(rawScore))) {
+    return res.status(400).json({ code: 400, message: 'rawScore 必须为数字' });
+  }
+  if (standardScore !== null && standardScore !== undefined && !Number.isFinite(Number(standardScore))) {
+    return res.status(400).json({ code: 400, message: 'standardScore 必须为数字或 null' });
+  }
+  if (!level || typeof level !== 'string') {
+    return res.status(400).json({ code: 400, message: 'level 不能为空' });
+  }
+  if (!severity || typeof severity !== 'string') {
+    return res.status(400).json({ code: 400, message: 'severity 不能为空' });
+  }
+
+  const userId = req.user.id;
+  const record = {
+    id: crypto.randomUUID(),
+    userId,
+    scaleId,
+    scaleName,
+    answers,
+    rawScore: Number(rawScore),
+    standardScore: standardScore === null || standardScore === undefined ? null : Number(standardScore),
+    level,
+    severity,
+    createdAt: new Date().toISOString()
+  };
+
+  const records = readUserAssessments(userId);
+  records.unshift(record);
+  // 保持按时间倒序
+  records.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  writeUserAssessments(userId, records);
+
+  res.json({ code: 200, message: '提交成功', data: record });
+});
+
+/**
+ * 获取当前用户历史测评记录（时间倒序）
+ * GET /api/assessment/history
+ */
+app.get('/api/assessment/history', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const records = readUserAssessments(userId);
+  res.json({ code: 200, message: '获取成功', data: Array.isArray(records) ? records : [] });
+});
+
+/**
+ * 获取单条测评详情（只能获取自己的）
+ * GET /api/assessment/:id
+ */
+app.get('/api/assessment/:id', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const records = readUserAssessments(userId);
+  const found = Array.isArray(records) ? records.find(r => r.id === id) : null;
+  if (!found) {
+    return res.status(404).json({ code: 404, message: '测评记录不存在' });
+  }
+  res.json({ code: 200, message: '获取成功', data: found });
+});
+
+/**
+ * 删除单条测评记录（只能删除自己的）
+ * DELETE /api/assessment/:id
+ */
+app.delete('/api/assessment/:id', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const records = readUserAssessments(userId);
+  const filtered = Array.isArray(records) ? records.filter(r => r.id !== id) : [];
+  if (!records || filtered.length === records.length) {
+    return res.status(404).json({ code: 404, message: '测评记录不存在' });
+  }
+  writeUserAssessments(userId, filtered);
+  res.json({ code: 200, message: '删除成功' });
+});
+
 // ==================== AI 对话接口 ====================
 
 app.post('/api/chat', (req, res) => {
@@ -521,8 +751,17 @@ app.post('/api/chat', (req, res) => {
 });
 
 function handleStreamRequest(messages, res) {
+  if (!API_KEY) {
+    res.status(500).json({ code: 500, message: '未配置 XUNFEI_API_KEY，请在 backend/.env 中设置' });
+    return;
+  }
+  if (!Array.isArray(messages) || messages.length === 0) {
+    res.status(400).json({ code: 400, message: 'messages 必须为非空数组' });
+    return;
+  }
+
   const requestBody = {
-    model: 'xop35qwen2b',
+    model: MAAS_MODEL,
     messages,
     max_tokens: 4000,
     temperature: 0.7,
@@ -530,9 +769,9 @@ function handleStreamRequest(messages, res) {
   };
 
   const options = {
-    hostname: 'maas-api.cn-huabei-1.xf-yun.com',
+    hostname: MAAS_HOST,
     port: 443,
-    path: '/v2/chat/completions',
+    path: MAAS_PATH,
     method: 'POST',
     timeout: 30000,
     headers: {
@@ -544,6 +783,19 @@ function handleStreamRequest(messages, res) {
   };
 
   const maasReq = https.request(options, (maasRes) => {
+    // 上游报错时原样返回 JSON 与状态码；若仍 pipe 成 200+乱码，前端 SSE 解析不到 → 显示「回复生成失败」
+    if (maasRes.statusCode < 200 || maasRes.statusCode >= 300) {
+      const errorChunks = [];
+      maasRes.on('data', (chunk) => errorChunks.push(chunk));
+      maasRes.on('end', () => {
+        const raw = Buffer.concat(errorChunks).toString('utf-8');
+        res.status(maasRes.statusCode);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(raw || JSON.stringify({ error: { message: 'MaaS 上游返回空错误体' } }));
+      });
+      return;
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');

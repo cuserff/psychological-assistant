@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { SCALES } from '../../data/scales'
 import { useAssessmentStore } from '../../store/assessmentStore'
 import { fetchAssessmentDetail } from '../../api/assessment'
+import { readCssVar } from '../../utils/cssVar'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,7 +29,7 @@ function getTagType(severity) {
 function getSeverityColor(severity, scaleId) {
   const scale = SCALES[scaleId]
   const level = scale?.levels?.find(l => l.severity === severity)
-  return level?.color || '#909399'
+  return level?.color || readCssVar('--app-color-text-muted', '#94a3b8')
 }
 
 function getScale(scaleId) {
@@ -226,7 +227,7 @@ onMounted(loadRecord)
 .detail-title {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .detail-actions {
@@ -246,7 +247,7 @@ onMounted(loadRecord)
 .summary-header-title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .summary-scale-icon {
@@ -263,26 +264,26 @@ onMounted(loadRecord)
 
 .summary-item {
   flex: 1 1 200px;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--app-color-fill-muted);
+  border: 1px solid var(--app-color-border);
   border-radius: 10px;
   padding: 12px 14px;
 }
 
 .summary-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin-bottom: 6px;
 }
 
 .summary-value {
   font-size: 18px;
   font-weight: 700;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .summary-value.highlight {
-  color: #409EFF;
+  color: var(--app-color-primary);
 }
 
 .level-row {
@@ -291,8 +292,8 @@ onMounted(loadRecord)
 }
 
 .suggestion-box {
-  background: #f0f7ff;
-  border: 1px solid #dbeafe;
+  background: var(--app-color-primary-soft-bg);
+  border: 1px solid var(--app-color-primary-muted);
   border-radius: 12px;
   padding: 12px 14px;
 }
@@ -300,20 +301,20 @@ onMounted(loadRecord)
 .suggestion-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin-bottom: 8px;
 }
 
 .suggestion-text {
   font-size: 14px;
-  color: #606266;
+  color: var(--app-color-el-text-regular);
   line-height: 1.8;
 }
 
 .answers-header {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
 }
 
 .answers-list {
@@ -324,21 +325,21 @@ onMounted(loadRecord)
 
 .answer-item {
   padding: 12px 14px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--app-color-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--app-color-bg-elevated);
 }
 
 .answer-question {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin-bottom: 6px;
 }
 
 .answer-answer {
   font-size: 13px;
-  color: #606266;
+  color: var(--app-color-el-text-regular);
 }
 </style>
 

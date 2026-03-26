@@ -36,6 +36,7 @@ const passwordForm = reactive({
   confirmPassword: ''
 })
 const passwordLoading = ref(false)
+const passwordDialogVisible = ref(false)
 
 const passwordRules = {
   oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
@@ -89,11 +90,21 @@ async function handleUpdatePassword() {
     })
     ElMessage.success('密码修改成功')
     passwordFormRef.value.resetFields()
+    passwordDialogVisible.value = false
   } catch (error) {
     ElMessage.error(error.message || '密码修改失败')
   } finally {
     passwordLoading.value = false
   }
+}
+
+function openPasswordDialog() {
+  passwordDialogVisible.value = true
+}
+
+function handleClosePasswordDialog() {
+  passwordDialogVisible.value = false
+  passwordFormRef.value?.resetFields?.()
 }
 </script>
 
@@ -102,58 +113,58 @@ async function handleUpdatePassword() {
     <!-- 第一行：数据统计看板 -->
     <StatsCards :stats="checkinStore.stats" :loading="pageLoading" />
 
-    <!-- 第二行：基本信息 + 修改密码 + 情绪打卡 -->
-    <el-row :gutter="20" class="card-row">
+    <!-- 第二行：基本信息 + 情绪打卡 -->
+    <div class="profile-grid">
       <!-- 用户信息卡片 -->
-      <el-col :span="8" class="card-col">
-        <el-card shadow="hover" class="full-height-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><User /></el-icon>
-              <span>基本信息</span>
-            </div>
-          </template>
-
-          <div class="user-avatar-section">
-            <img
-              :src="avatarMap[userStore.avatar]"
-              class="user-avatar-img"
-              alt="用户头像"
-            />
-            <div class="avatar-picker">
-              <span class="avatar-picker-label">选择头像：</span>
-              <img
-                v-for="key in ['boy', 'girl']"
-                :key="key"
-                :src="avatarMap[key]"
-                :class="['avatar-option', { active: userStore.avatar === key }]"
-                :title="key === 'boy' ? '男生头像' : '女生头像'"
-                @click="userStore.setAvatar(key)"
-              />
-            </div>
+      <el-card shadow="hover" class="full-height-card">
+        <template #header>
+          <div class="card-header">
+            <el-icon><User /></el-icon>
+            <span>基本信息</span>
           </div>
+        </template>
 
-          <el-descriptions :column="1" border class="user-desc">
-            <el-descriptions-item label="用户名">
-              {{ userStore.userInfo?.username || '-' }}
-            </el-descriptions-item>
-            <el-descriptions-item label="注册时间">
-              {{ userStore.userInfo?.createdAt
-                ? new Date(userStore.userInfo.createdAt).toLocaleDateString('zh-CN')
-                : '-' }}
-            </el-descriptions-item>
-          </el-descriptions>
+        <div class="user-avatar-section">
+          <img
+            :src="avatarMap[userStore.avatar]"
+            class="user-avatar-img"
+            alt="用户头像"
+          />
+          <div class="avatar-picker">
+            <span class="avatar-picker-label">选择头像：</span>
+            <img
+              v-for="key in ['boy', 'girl']"
+              :key="key"
+              :src="avatarMap[key]"
+              :class="['avatar-option', { active: userStore.avatar === key }]"
+              :title="key === 'boy' ? '男生头像' : '女生头像'"
+              @click="userStore.setAvatar(key)"
+            />
+          </div>
+        </div>
 
-          <el-form
-            ref="infoFormRef"
-            :model="infoForm"
-            label-width="60px"
-            style="margin-top: 20px;"
-          >
-            <el-form-item label="昵称">
-              <el-input v-model="infoForm.nickname" placeholder="请输入昵称" />
-            </el-form-item>
-            <el-form-item>
+        <el-descriptions :column="1" border class="user-desc">
+          <el-descriptions-item label="用户名">
+            {{ userStore.userInfo?.username || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="注册时间">
+            {{ userStore.userInfo?.createdAt
+              ? new Date(userStore.userInfo.createdAt).toLocaleDateString('zh-CN')
+              : '-' }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <el-form
+          ref="infoFormRef"
+          :model="infoForm"
+          label-width="60px"
+          style="margin-top: 20px;"
+        >
+          <el-form-item label="昵称">
+            <el-input v-model="infoForm.nickname" placeholder="请输入昵称" />
+          </el-form-item>
+          <el-form-item>
+            <div class="info-actions">
               <el-button
                 type="primary"
                 :loading="infoLoading"
@@ -161,73 +172,70 @@ async function handleUpdatePassword() {
               >
                 保存修改
               </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
-
-      <!-- 修改密码卡片 -->
-      <el-col :span="8" class="card-col">
-        <el-card shadow="hover" class="full-height-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><Lock /></el-icon>
-              <span>修改密码</span>
-            </div>
-          </template>
-
-          <el-form
-            ref="passwordFormRef"
-            :model="passwordForm"
-            :rules="passwordRules"
-            label-width="90px"
-          >
-            <el-form-item label="原密码" prop="oldPassword">
-              <el-input
-                v-model="passwordForm.oldPassword"
-                type="password"
-                placeholder="请输入原密码"
-                show-password
-              />
-            </el-form-item>
-            <el-form-item label="新密码" prop="newPassword">
-              <el-input
-                v-model="passwordForm.newPassword"
-                type="password"
-                placeholder="请输入新密码（至少 6 位）"
-                show-password
-              />
-            </el-form-item>
-            <el-form-item label="确认密码" prop="confirmPassword">
-              <el-input
-                v-model="passwordForm.confirmPassword"
-                type="password"
-                placeholder="请再次输入新密码"
-                show-password
-              />
-            </el-form-item>
-            <el-form-item>
-              <el-button
-                type="primary"
-                :loading="passwordLoading"
-                @click="handleUpdatePassword"
-              >
+              <el-button type="default" :icon="Lock" @click="openPasswordDialog">
                 修改密码
               </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
+            </div>
+          </el-form-item>
+        </el-form>
+      </el-card>
 
       <!-- 情绪打卡卡片 -->
-      <el-col :span="8" class="card-col">
+      <div class="mood-card-wrap">
         <MoodCheckin
           :today-checked-in="checkinStore.isTodayCheckedIn()"
           :today-record="checkinStore.getTodayRecord()"
           @checkin-success="refreshAfterCheckin"
         />
-      </el-col>
-    </el-row>
+      </div>
+    </div>
+
+    <!-- 修改密码弹窗 -->
+    <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改密码"
+      width="460px"
+      @close="handleClosePasswordDialog"
+    >
+      <el-form
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-width="90px"
+      >
+        <el-form-item label="原密码" prop="oldPassword">
+          <el-input
+            v-model="passwordForm.oldPassword"
+            type="password"
+            placeholder="请输入原密码"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input
+            v-model="passwordForm.newPassword"
+            type="password"
+            placeholder="请输入新密码（至少 6 位）"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmPassword">
+          <el-input
+            v-model="passwordForm.confirmPassword"
+            type="password"
+            placeholder="请再次输入新密码"
+            show-password
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="handleClosePasswordDialog">取消</el-button>
+        <el-button type="primary" :loading="passwordLoading" @click="handleUpdatePassword">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 第三行：情绪热力图 -->
     <div style="margin-top: 20px;">
@@ -293,7 +301,7 @@ async function handleUpdatePassword() {
 }
 
 .avatar-option.active {
-  border-color: #0284c7;
+  border-color: var(--app-color-primary);
   opacity: 1;
   box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
 }
@@ -302,18 +310,34 @@ async function handleUpdatePassword() {
   margin-bottom: 10px;
 }
 
-/* 第二行卡片等高对齐 */
-.card-row {
+/* 第二行网格布局（黄金比例 4:6） */
+.profile-grid {
   margin-top: 4px;
-  display: flex;
-  flex-wrap: wrap;
-}
-
-.card-col {
-  display: flex;
+  display: grid;
+  grid-template-columns: 4fr 6fr;
+  gap: 20px;
+  align-items: stretch;
 }
 
 .full-height-card {
   width: 100%;
+}
+
+.info-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.mood-card-wrap :deep(.el-card) {
+  height: 100%;
+}
+
+@media (max-width: 992px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

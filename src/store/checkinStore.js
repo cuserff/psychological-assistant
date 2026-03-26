@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { fetchCheckinRecords, submitCheckin, fetchUserStats } from '../api/checkin'
 import { useUserStore } from './userStore'
 import { getItem, setItem } from '../utils/storage'
+import { getCheckinTodayDateCandidates } from '../utils/date'
 
 export const useCheckinStore = defineStore('checkin', () => {
   /** @type {import('vue').Ref<Array<{date: string, mood: number, note: string, createdAt: string}>>} */
@@ -141,16 +142,21 @@ export const useCheckinStore = defineStore('checkin', () => {
    * 检查今天是否已打卡
    */
   function isTodayCheckedIn() {
-    const today = new Date().toISOString().slice(0, 10)
-    return records.value.some(r => r.date === today)
+    const candidates = getCheckinTodayDateCandidates()
+    return records.value.some(r => candidates.includes(r.date))
   }
 
   /**
    * 获取今天的打卡记录（如果有的话）
    */
   function getTodayRecord() {
-    const today = new Date().toISOString().slice(0, 10)
-    return records.value.find(r => r.date === today) || null
+    const candidates = getCheckinTodayDateCandidates()
+    // 优先本地日期，其次 UTC 兼容
+    for (const date of candidates) {
+      const found = records.value.find(r => r.date === date)
+      if (found) return found
+    }
+    return null
   }
 
   return {

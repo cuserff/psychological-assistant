@@ -9,6 +9,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { Calendar } from '@element-plus/icons-vue'
+import { readCssVar } from '../../utils/cssVar'
 
 // 按需注册 ECharts 模块，减小打包体积
 echarts.use([
@@ -46,6 +47,10 @@ function buildChartOption(records) {
     .filter(r => r.date.startsWith(String(currentYear)))
     .map(r => [r.date, r.mood])
 
+  const cellBg = readCssVar('--app-heatmap-cell-bg', '#ebedf0')
+  const cellBorder = readCssVar('--app-heatmap-cell-border', '#ffffff')
+  const splitLine = readCssVar('--app-heatmap-split', '#e5e7eb')
+
   return {
     tooltip: {
       formatter(params) {
@@ -62,11 +67,11 @@ function buildChartOption(records) {
       left: 'center',
       bottom: 0,
       pieces: [
-        { min: 1, max: 1, label: '很差', color: '#ef4444' },
-        { min: 2, max: 2, label: '较差', color: '#f97316' },
-        { min: 3, max: 3, label: '一般', color: '#eab308' },
-        { min: 4, max: 4, label: '不错', color: '#22c55e' },
-        { min: 5, max: 5, label: '很好', color: '#16a34a' }
+        { min: 1, max: 1, label: '很差', color: readCssVar('--app-mood-1', '#ef4444') },
+        { min: 2, max: 2, label: '较差', color: readCssVar('--app-mood-2', '#f97316') },
+        { min: 3, max: 3, label: '一般', color: readCssVar('--app-mood-3', '#eab308') },
+        { min: 4, max: 4, label: '不错', color: readCssVar('--app-mood-4', '#22c55e') },
+        { min: 5, max: 5, label: '很好', color: readCssVar('--app-mood-5', '#16a34a') }
       ]
     },
     calendar: {
@@ -76,9 +81,9 @@ function buildChartOption(records) {
       cellSize: ['auto', 16],
       range: String(currentYear),
       itemStyle: {
-        color: '#ebedf0',
+        color: cellBg,
         borderWidth: 3,
-        borderColor: '#fff'
+        borderColor: cellBorder
       },
       yearLabel: { show: true, position: 'top' },
       dayLabel: {
@@ -90,7 +95,7 @@ function buildChartOption(records) {
       },
       splitLine: {
         show: true,
-        lineStyle: { color: '#e5e7eb', width: 1 }
+        lineStyle: { color: splitLine, width: 1 }
       }
     },
     series: [{

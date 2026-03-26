@@ -56,19 +56,19 @@ const emit = defineEmits(['start'])
 .card-title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-color-text);
   margin: 0 0 4px;
 }
 
 .card-subtitle {
   font-size: 12px;
-  color: #909399;
+  color: var(--app-color-text-muted);
   margin: 0 0 10px;
 }
 
 .card-desc {
   font-size: 13px;
-  color: #606266;
+  color: var(--app-color-el-text-regular);
   line-height: 1.5;
   margin: 0 0 14px;
   min-height: 40px;
