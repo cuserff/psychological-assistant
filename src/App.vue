@@ -356,7 +356,7 @@ function handleDropdownCommand(command) {
 
 /* 主区域列（顶栏 + el-main）：占满剩余高度并允许子项收缩，避免整页滚动条影响侧栏 */
 .app-container > .el-container > .el-container {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   overflow: hidden;
 }
@@ -376,7 +376,8 @@ function handleDropdownCommand(command) {
  */
 .el-main.app-main--chat {
   background-color: var(--app-color-bg-chat);
-  flex: 1;
+  /* flex-basis: 0 避免嵌套 flex 下主区域高度被算成 0，导致对话页整片空白 */
+  flex: 1 1 0%;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -394,7 +395,7 @@ function handleDropdownCommand(command) {
 .app-main--chat .app-main__shell {
   max-width: none;
   margin: 0;
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   display: flex;
   flex-direction: column;

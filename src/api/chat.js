@@ -9,7 +9,10 @@ import { getToken } from '../utils/storage'
  */
 export function sendChatRequest(messages, { signal } = {}) {
   const token = getToken()
-  const headers = { 'Content-Type': 'application/json' }
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream'
+  }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -23,37 +26,72 @@ export function sendChatRequest(messages, { signal } = {}) {
 }
 
 /**
- * 解析单行 SSE data，提取 delta content
- * @param {string} line 原始 SSE 行
- * @returns {string|null} 增量文本，null 表示流结束或无效行
+ * 从类 OpenAI 流式/非流式 JSON 对象中提取应展示给用户的文本增量（或整段）
+ * @param {Record<string, unknown>} json
+ * @returns {string|null}
  */
-export function parseSSELine(line) {
-  const trimmed = line.trim()
-  if (!trimmed || trimmed.startsWith(':')) return null
-  if (!trimmed.startsWith('data:')) return null
-  // 兼容 data: 与 data:<无空格>
-  const payload = trimmed.slice(5).replace(/^\s*/, '')
-  if (payload === '[DONE]') return null
+function extractTextFromOpenAiStyleChunk(json) {
+  if (!json || typeof json !== 'object') return null
+  if (json.error) {
+    const err = json.error
+    const message =
+      typeof err === 'string'
+        ? err
+        : (err?.message || err?.msg || JSON.stringify(err))
+    const businessError = new Error(message)
+    businessError.isUpstreamSseError = true
+    throw businessError
+  }
 
-  try {
-    const json = JSON.parse(payload)
-    if (json.error) {
-      const err = json.error
-      const message =
-        typeof err === 'string'
-          ? err
-          : (err.message || err.msg || JSON.stringify(err))
-      const businessError = new Error(message)
-      businessError.isUpstreamSseError = true
-      throw businessError
+  const choiceList = Array.isArray(json.choices)
+    ? json.choices
+    : Array.isArray(json.data?.choices)
+      ? json.data.choices
+      : null
+  const choice = choiceList?.[0]
+  if (!choice || typeof choice !== 'object') return null
+
+  const delta = choice.delta
+  let piece = ''
+  if (delta !== undefined && delta !== null && typeof delta === 'object') {
+    const rawContent = delta.content
+    if (typeof rawContent === 'string') {
+      piece = rawContent
+    } else if (Array.isArray(rawContent)) {
+      piece = rawContent
+        .map((part) => {
+          if (!part || typeof part !== 'object') return ''
+          if (typeof part.text === 'string') return part.text
+          return ''
+        })
+        .join('')
     }
-    const choice = json.choices?.[0]
-    const delta = choice?.delta
-    const piece =
-      (typeof delta?.content === 'string' ? delta.content : '')
-      || (typeof delta?.text === 'string' ? delta.text : '')
-      || (typeof choice?.text === 'string' ? choice.text : '')
-    return piece || null
+    if (!piece && typeof delta.text === 'string') piece = delta.text
+  }
+  if (!piece && typeof choice.text === 'string') piece = choice.text
+  if (
+    !piece
+    && choice.message
+    && typeof choice.message === 'object'
+    && typeof choice.message.content === 'string'
+  ) {
+    piece = choice.message.content
+  }
+
+  return piece.length > 0 ? piece : null
+}
+
+/**
+ * 解析 SSE 中单个 data 事件负载（可为多行 data: 拼接后的字符串）或裸 JSON 行
+ * @param {string} payload
+ * @returns {string|null}
+ */
+export function parseStreamDataPayload(payload) {
+  const trimmed = String(payload || '').trim()
+  if (!trimmed || trimmed === '[DONE]') return null
+  try {
+    const json = JSON.parse(trimmed)
+    return extractTextFromOpenAiStyleChunk(json)
   } catch (parseOrBusinessError) {
     if (
       parseOrBusinessError instanceof Error
@@ -63,6 +101,31 @@ export function parseSSELine(line) {
     }
     return null
   }
+}
+
+/**
+ * 解析单行：SSE data: 行、或 NDJSON（整行 JSON），忽略 event:/id:/注释
+ * @param {string} line 原始行
+ * @returns {string|null} 增量文本；null 表示本行无有效增量
+ */
+export function parseSSELine(line) {
+  const trimmed = line.replace(/\r$/, '').trim()
+  if (!trimmed || trimmed.startsWith(':')) return null
+  if (
+    trimmed.startsWith('event:')
+    || trimmed.startsWith('id:')
+    || trimmed.startsWith('retry:')
+  ) {
+    return null
+  }
+  if (trimmed.startsWith('data:')) {
+    const payload = trimmed.slice(5).replace(/^\s*/, '')
+    return parseStreamDataPayload(payload)
+  }
+  if (trimmed.startsWith('{')) {
+    return parseStreamDataPayload(trimmed)
+  }
+  return null
 }
 
 // ==================== 聊天会话持久化 API ====================

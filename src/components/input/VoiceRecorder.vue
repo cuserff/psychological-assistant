@@ -12,11 +12,59 @@ const props = defineProps({
     validator: (value) => ['default', 'pill'].includes(value)
   },
   /** 生成中等父级禁用交互 */
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  /**
+   * browser：Web Speech API；backend：WebSocket /ws/stt 分片 PCM 实时听写（讯飞）
+   */
+  sttMode: {
+    type: String,
+    default: 'browser',
+    validator: (value) => ['browser', 'backend'].includes(value)
+  },
+  /** 听写定稿时回调 text / safety 占位（浏览器内置识别无此结构） */
+  onSttResultDetail: {
+    type: Function,
+    default: null
+  },
+  /** 开始录音前调用（用于打断上轮 TTS / 生成） */
+  beforeStartListening: {
+    type: Function,
+    default: null
+  }
 })
 
-const emit = defineEmits(['result'])
-const { isSupported, isListening, transcript, error, clearError, startListening, stopListening } = useSpeech()
+const emit = defineEmits([
+  'result',
+  'listening-change',
+  'speech-error',
+  'recognizing-change',
+  'transcript-change'
+])
+const {
+  isSupported,
+  isListening,
+  isRecognizing,
+  transcript,
+  error,
+  clearError,
+  startListening,
+  stopListening
+} = useSpeech({
+  getMode: () => props.sttMode,
+  beforeStartListening: () => {
+    if (typeof props.beforeStartListening === 'function') {
+      props.beforeStartListening()
+    }
+  },
+  onBackendTranscribeResult: (detail) => {
+    if (typeof props.onSttResultDetail === 'function') {
+      props.onSttResultDetail(detail)
+    }
+  },
+  onRecognizingChange: (value) => {
+    emit('recognizing-change', value)
+  }
+})
 
 // tooltip 显示控制
 const showTooltip = ref(false)
@@ -34,6 +82,15 @@ function toggleListening() {
     startListening()
   }
 }
+
+/** 统一打断：外部调用等价于用户再点一次停止录音（触发 STT stop） */
+function interruptListening() {
+  if (isListening.value || isRecognizing.value) {
+    void stopListening()
+  }
+}
+
+defineExpose({ interruptListening, isRecognizing })
 
 function handleRetry() {
   clearError()
@@ -57,24 +114,44 @@ async function handlePermissionGuide() {
   })
 }
 
-// 停止录音后，将最终结果传给父组件
-watch(isListening, (listening) => {
-  if (!listening && transcript.value.trim() && !props.disabled) {
-    emit('result', transcript.value.trim())
-  }
-})
+// 停止录音后，将最终结果传给父组件；同步聆听状态供上层「语音会话」展示
+watch(
+  isListening,
+  (listening) => {
+    emit('listening-change', listening)
+    if (!listening && transcript.value.trim() && !props.disabled) {
+      emit('result', transcript.value.trim())
+    }
+  },
+  { immediate: true }
+)
 
 watch(error, (err) => {
   if (!err) return
+  emit('speech-error', err)
   // 关键错误给用户明确反馈（避免“静默失败”）
-  if (err.code === 'not-allowed' || err.code === 'service-not-allowed') {
+  if (
+    err.code === 'not-allowed'
+    || err.code === 'service-not-allowed'
+    || err.code === 'invalid_token'
+    || err.code === 'missing_token'
+  ) {
     ElMessage.error(err.message)
-  } else if (err.code === 'no-speech') {
+  } else if (err.code === 'no-speech' || err.code === 'stt-empty') {
     ElMessage.warning(err.message)
   } else if (err.code !== 'aborted') {
     ElMessage.warning(err.message)
   }
 })
+
+// 识别过程中的中间结果与定稿变化，实时抛给父组件
+watch(
+  transcript,
+  (text) => {
+    emit('transcript-change', String(text || ''))
+  },
+  { immediate: true }
+)
 </script>
 
 <template>

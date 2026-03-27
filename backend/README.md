@@ -140,6 +140,43 @@ GET /health
 }
 ```
 
+## 实时语音转写 WebSocket：`/ws/stt`
+
+与 HTTP `POST /api/voice/stt` 相同，默认走**讯飞语音听写（流式版）** WebSocket，多帧上传（`status` 0/1/2）。浏览器或其它客户端可用本接口做「边录边出字」。
+
+### 连接与鉴权
+
+- 地址：`ws://<host>:<PORT>/ws/stt?token=<JWT>`
+- `token` 为登录接口返回的 JWT（与 REST `Authorization: Bearer` 同源），非法或缺失会先收到结构化 `error` 再断开。
+
+### 服务端 → 客户端（统一回包）
+
+| JSON | 含义 |
+|------|------|
+| `{ "type": "ready" }` | 鉴权通过，可发 `start` |
+| `{ "type": "started" }` | 上游听写会话已就绪 |
+| `{ "type": "partial", "text": "..." }` | 中间识别结果（随上游增量更新） |
+| `{ "type": "final", "text": "..." }` | 本轮结束（`stop` 或空闲超时等） |
+| `{ "type": "error", "code": "...", "message": "..." }` | 可恢复或不可恢复错误；连接可能随后关闭 |
+
+常见 `code`：`missing_token`、`invalid_token`、`bad_json`、`not_started`、`invalid_state`、`idle_timeout`、`session_timeout`、`upstream_connect_timeout`、`upstream_stt` 等。
+
+### 客户端 → 服务端
+
+1. `{"type":"start"}` — 建立上游连接；成功后在收到 `started` 后再发音频。
+2. `{"type":"audio","data":"<base64>"}` — PCM L16 单声道 raw（与 `XUNFEI_STT_SAMPLE_RATE` 一致，默认 16k）；可多次发送。字段名也可用 `audio` 代替 `data`。
+3. `{"type":"stop"}` — 结束上行并等待 `final`。
+
+长时间无 `audio` 将自动 `stop` 并下发 `idle_timeout` 的 `error`（时长见环境变量 `STT_WS_IDLE_TIMEOUT_MS`）。客户端断开时上游与定时器会清理。
+
+### 环境与密钥
+
+在 `.env` 中配置与短音频 STT 一致的 `STT_PROVIDER=xunfei-iat-ws` 及 `XUNFEI_STT_*`（或回退 `XUNFEI_RTASR_*` / `XUNFEI_TTS_*`）。可选：`STT_WS_IDLE_TIMEOUT_MS`、`STT_WS_UPSTREAM_CONNECT_MS`、`STT_WS_UPSTREAM_SESSION_MS`、`STT_WS_STOP_WAIT_MS`、`STT_WS_PCM_FRAME_BYTES`、`XUNFEI_STT_LANGUAGE`、`XUNFEI_STT_SAMPLE_RATE` 等，见 `.env.example`。
+
+### 手工验收（示例）
+
+使用任意 WebSocket 调试工具连上带 `token` 的 URL 后依次发送：`start` → 若干 `audio`（有效 PCM base64）→ `stop`，应能收到 `partial` 与最终 `final`。勿将真实 JWT 写入文档或截图。
+
 ## 关于流式请求的说明
 
 系统支持完整的流式对话功能：

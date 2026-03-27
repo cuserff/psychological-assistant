@@ -7,12 +7,16 @@ import { fetchSessions as apiFetchSessions, saveSessionsToServer, deleteSessionF
 /**
  * @typedef {'user' | 'assistant' | 'system'} MessageRole
  *
+ * @typedef {'none'|'queued'|'playing'|'failed'} AssistantVoiceStatus
+ *
  * @typedef {Object} Message
  * @property {string}      id        唯一标识
  * @property {MessageRole} role      角色
  * @property {string}      content   文本内容
  * @property {string[]}    [images] 用户消息可选：图片地址（相对 /uploads/...、data URL、或 http(s)），展示与拼 prompt
  * @property {string}      timestamp ISO 时间戳
+ * @property {AssistantVoiceStatus} [voiceStatus] 助手消息可选：本条回复的语音播报状态（供 UI）
+ * @property {'text'|'mic'} [voiceInputChannel] 用户消息可选：文本输入或麦克风提交（供 UI）
  *
  * @typedef {Object} ChatSession
  * @property {string}    id        会话唯一标识
@@ -33,8 +37,25 @@ export const useChatStore = defineStore('chat', () => {
   /** @type {import('vue').Ref<string|null>} */
   const activeSessionId = ref(null)
   const isGenerating = ref(false)
+  /** 上一轮助手回复结束是否为用户点击「停止」（供 TTS 尾巴是否入队等逻辑使用） */
+  const lastReplyAborted = ref(false)
   /** @type {import('vue').Ref<AbortController|null>} */
   const currentAbortController = ref(null)
+
+  /**
+   * 最近一次心理安全扫描结果（STT 或流式首包 mental_health_safety）
+   * @type {import('vue').Ref<{ riskLevel: 'none'|'high', hitRules: string[], safeReplyMode: boolean } | null>}
+   */
+  const lastMentalHealthSafety = ref(null)
+  /** 本轮助手流式结束后是否改为播报固定温和模板（与原文分流） */
+  const crisisSafeTtsForNextAssistant = ref(false)
+
+  /**
+   * 语音会话阶段（与 Chat 状态机同步，供顶栏/编排器提示）
+   * idle → listening → recognizing → generating → speaking → error
+   * @type {import('vue').Ref<'idle'|'listening'|'recognizing'|'generating'|'speaking'|'error'>}
+   */
+  const voiceSessionPhase = ref('idle')
 
   // ==================== 计算属性 ====================
 
@@ -189,8 +210,9 @@ export const useChatStore = defineStore('chat', () => {
    * @param {string} content 用户输入文本
    * @param {Object} [options]
    * @param {string[]} [options.images] 图片引用列表（服务端相对路径、data URL 等）
+   * @param {'text'|'mic'} [options.voiceInputChannel] 可选：来自麦克风的提交
    */
-  function addUserMessage(content, { images = [] } = {}) {
+  function addUserMessage(content, { images = [], voiceInputChannel } = {}) {
     const session = activeSession.value
     if (!session) return
 
@@ -210,6 +232,9 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (imageList.length > 0) {
       message.images = imageList
+    }
+    if (voiceInputChannel === 'mic') {
+      message.voiceInputChannel = 'mic'
     }
     session.messages.push(message)
     session.updatedAt = new Date().toISOString()
@@ -240,6 +265,7 @@ export const useChatStore = defineStore('chat', () => {
       id: `msg_${Date.now() + 1}`,
       role: 'assistant',
       content: '',
+      voiceStatus: 'none',
       timestamp: new Date().toISOString()
     })
 
@@ -254,10 +280,24 @@ export const useChatStore = defineStore('chat', () => {
   function appendAssistantDelta(msgIndex, delta) {
     const session = activeSession.value
     if (!session || msgIndex < 0) return
+    if (delta === undefined || delta === null || delta === '') return
     const msg = session.messages[msgIndex]
     if (!msg || msg.role !== 'assistant') return
-    if (typeof msg.content !== 'string') msg.content = ''
-    msg.content += delta
+    const previous = typeof msg.content === 'string' ? msg.content : ''
+    session.messages[msgIndex] = { ...msg, content: previous + String(delta) }
+  }
+
+  /**
+   * 更新指定助手消息的语音播报 UI 状态（不单独触发持久化，随 finalizeReply 等一并保存）
+   * @param {number} msgIndex
+   * @param {AssistantVoiceStatus} voiceStatus
+   */
+  function setAssistantVoiceStatus(msgIndex, voiceStatus) {
+    const session = activeSession.value
+    if (!session || msgIndex < 0) return
+    const msg = session.messages[msgIndex]
+    if (!msg || msg.role !== 'assistant') return
+    session.messages[msgIndex] = { ...msg, voiceStatus }
   }
 
   /**
@@ -276,6 +316,7 @@ export const useChatStore = defineStore('chat', () => {
         : '抱歉，回复生成失败，请稍后重试。'
     }
 
+    lastReplyAborted.value = aborted
     session.updatedAt = new Date().toISOString()
     saveSessions()
   }
@@ -290,6 +331,9 @@ export const useChatStore = defineStore('chat', () => {
     activeSessionId.value = null
     isGenerating.value = false
     currentAbortController.value = null
+    lastMentalHealthSafety.value = null
+    crisisSafeTtsForNextAssistant.value = false
+    voiceSessionPhase.value = 'idle'
   }
 
   function setCurrentAbortController(controller) {
@@ -304,11 +348,41 @@ export const useChatStore = defineStore('chat', () => {
     currentAbortController.value?.abort()
   }
 
+  /**
+   * 写入后端返回的心理安全元数据；高风险时开启安全播报模式
+   * @param {{ riskLevel?: string, hitRules?: string[], safeReplyMode?: boolean }} meta
+   */
+  function ingestMentalHealthSafety(meta) {
+    if (!meta || typeof meta !== 'object') return
+    const normalized = {
+      riskLevel: meta.riskLevel === 'high' ? 'high' : 'none',
+      hitRules: Array.isArray(meta.hitRules) ? meta.hitRules : [],
+      safeReplyMode: Boolean(meta.safeReplyMode)
+    }
+    lastMentalHealthSafety.value = normalized
+    // 以最新一次扫描为准（避免发送前清空导致首段流式仍走原文 TTS）
+    crisisSafeTtsForNextAssistant.value =
+      normalized.riskLevel === 'high' && normalized.safeReplyMode
+  }
+
+  function clearCrisisSafeTtsFlag() {
+    crisisSafeTtsForNextAssistant.value = false
+  }
+
+  /** @param {'idle'|'listening'|'recognizing'|'generating'|'speaking'|'error'} phase */
+  function setVoiceSessionPhase(phase) {
+    voiceSessionPhase.value = phase
+  }
+
   return {
     // 状态
     sessions,
     activeSessionId,
     isGenerating,
+    lastReplyAborted,
+    lastMentalHealthSafety,
+    crisisSafeTtsForNextAssistant,
+    voiceSessionPhase,
     // 计算属性
     activeSession,
     activeMessages,
@@ -324,11 +398,15 @@ export const useChatStore = defineStore('chat', () => {
     addUserMessage,
     createAssistantPlaceholder,
     appendAssistantDelta,
+    setAssistantVoiceStatus,
     finalizeReply,
     // 取消生成（Stop 按钮）
     setCurrentAbortController,
     clearCurrentAbortController,
     stopGeneration,
+    ingestMentalHealthSafety,
+    clearCrisisSafeTtsFlag,
+    setVoiceSessionPhase,
     // 生命周期
     resetStore
   }

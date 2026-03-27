@@ -1,4 +1,4 @@
-import { sendChatRequest, parseSSELine } from './chat'
+import { sendChatRequest, parseSSELine, parseStreamDataPayload } from './chat'
 import { BASE_URL, resolveUploadUrl } from './config'
 
 /**
@@ -442,12 +442,36 @@ function contextHasMultimodalUserContent(messages) {
 // ==================== SSE 流式调度 ====================
 
 /**
+ * 解析 SSE data 中的心理安全首包（非模型文本增量）
+ * @param {string} payload
+ * @param {(meta: Record<string, unknown>) => void} [onMentalHealthSafety]
+ * @returns {boolean} 是否已消费为安全元数据（消费后不应再当作文本增量）
+ */
+function tryConsumeMentalHealthSafetyPayload(payload, onMentalHealthSafety) {
+  if (typeof onMentalHealthSafety !== 'function') return false
+  const trimmed = String(payload || '').trim()
+  if (!trimmed || trimmed === '[DONE]') return false
+  try {
+    const parsed = JSON.parse(trimmed)
+    const safetyBlock = parsed?.mental_health_safety
+    if (safetyBlock && typeof safetyBlock === 'object') {
+      onMentalHealthSafety(safetyBlock)
+      return true
+    }
+  } catch {
+    // 非 JSON：交回常规解析
+  }
+  return false
+}
+
+/**
  * 向后端大模型发送上下文，流式读取 SSE 回复。
  * 通过回调将增量文本交给调用方处理（Store / Composable）。
  *
  * @param {Array<{role: string, content: string | unknown}>} contextMessages  buildContextMessages 的输出
  * @param {Object}   callbacks
  * @param {function(string): void}  callbacks.onDelta    每收到一段增量文本时调用
+ * @param {function(Record<string, unknown>): void} [callbacks.onMentalHealthSafety] SSE 首包心理安全元数据
  * @param {function(): void}        [callbacks.onComplete] 流正常结束时调用
  * @param {function(Error): void}   [callbacks.onError]    出错时调用（之后仍会 throw）
  * @param {Array<{role: string, content: string}>} [callbacks.fallbackContextMessages] 多模态被拒或网关报错时改发纯文本再试一轮
@@ -455,7 +479,14 @@ function contextHasMultimodalUserContent(messages) {
  */
 export async function streamLLMResponse(
   contextMessages,
-  { onDelta, onComplete, onError, signal, fallbackContextMessages } = {}
+  {
+    onDelta,
+    onMentalHealthSafety,
+    onComplete,
+    onError,
+    signal,
+    fallbackContextMessages
+  } = {}
 ) {
   let response = await sendChatRequest(contextMessages, { signal })
 
@@ -488,6 +519,71 @@ export async function streamLLMResponse(
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
+  /**
+   * 跨分包缓存；同时兼容 SSE 空行事件分隔（\\n\\n）与仅单行 \\n 结尾 upstream
+   */
+  let sseLineBuffer = ''
+
+  /**
+   * 处理一个 SSE 事件块（由 \\n\\n 分隔），合并多条 data: 行后再解析
+   * @param {string} block
+   */
+  function consumeSseEventBlock(block) {
+    const lines = block.replace(/\r/g, '').split('\n')
+    const dataPayloads = []
+    for (const rawLine of lines) {
+      const trimmedStart = rawLine.trimStart()
+      if (trimmedStart.startsWith('data:')) {
+        dataPayloads.push(trimmedStart.slice(5).replace(/^\s*/, ''))
+      }
+    }
+    const deltaPayloads = []
+    for (const payload of dataPayloads) {
+      if (!tryConsumeMentalHealthSafetyPayload(payload, onMentalHealthSafety)) {
+        deltaPayloads.push(payload)
+      }
+    }
+    if (deltaPayloads.length === 0) return
+    if (deltaPayloads.length === 1) {
+      const singleDelta = parseStreamDataPayload(deltaPayloads[0])
+      if (singleDelta) onDelta(singleDelta)
+      return
+    }
+    const mergedPayload = deltaPayloads.join('\n')
+    let mergedDelta = parseStreamDataPayload(mergedPayload)
+    if (mergedDelta) {
+      onDelta(mergedDelta)
+      return
+    }
+    for (const part of deltaPayloads) {
+      const piece = parseStreamDataPayload(part)
+      if (piece) onDelta(piece)
+    }
+  }
+
+  /**
+   * @param {string} fragment
+   */
+  function consumeSseText(fragment) {
+    if (!fragment) return
+    sseLineBuffer += fragment.replace(/\r\n/g, '\n')
+    while (true) {
+      const doubleNl = sseLineBuffer.indexOf('\n\n')
+      if (doubleNl === -1) break
+      const eventBlock = sseLineBuffer.slice(0, doubleNl)
+      sseLineBuffer = sseLineBuffer.slice(doubleNl + 2)
+      consumeSseEventBlock(eventBlock)
+    }
+    let newlineIndex
+    while ((newlineIndex = sseLineBuffer.indexOf('\n')) !== -1) {
+      const rawLine = sseLineBuffer.slice(0, newlineIndex)
+      sseLineBuffer = sseLineBuffer.slice(newlineIndex + 1)
+      const delta = parseSSELine(rawLine)
+      if (delta) {
+        onDelta(delta)
+      }
+    }
+  }
 
   try {
     while (true) {
@@ -495,8 +591,16 @@ export async function streamLLMResponse(
       if (done) break
 
       const chunk = decoder.decode(value, { stream: true })
-      for (const line of chunk.split('\n')) {
-        const delta = parseSSELine(line)
+      consumeSseText(chunk)
+    }
+    consumeSseText(decoder.decode())
+    if (sseLineBuffer.trim().length > 0) {
+      const tail = sseLineBuffer.replace(/\r$/, '')
+      if (!tryConsumeMentalHealthSafetyPayload(tail, onMentalHealthSafety)) {
+        let delta = parseSSELine(tail)
+        if (!delta && tail.trimStart().startsWith('{')) {
+          delta = parseStreamDataPayload(tail)
+        }
         if (delta) {
           onDelta(delta)
         }

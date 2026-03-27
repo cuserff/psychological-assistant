@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -7,6 +8,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const dotenv = require('dotenv');
+const WebSocket = require('ws');
 
 dotenv.config();
 
@@ -18,6 +20,87 @@ const MAAS_HOST = process.env.XUNFEI_MAAS_HOST || 'maas-api.cn-huabei-1.xf-yun.c
 const MAAS_PATH = process.env.XUNFEI_MAAS_PATH || '/v2/chat/completions';
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'mental-health-assistant-jwt-secret';
+
+/**
+ * 在线 TTS：默认走讯飞「流式版」WebSocket v2（与控制台「在线语音合成-流式版」一致）；
+ * 旧版 HTTP 可设 TTS_PROVIDER=xunfei-webapi
+ */
+const TTS_PROVIDER = process.env.TTS_PROVIDER || 'xunfei-ws';
+const XUNFEI_TTS_HOST = process.env.XUNFEI_TTS_HOST || 'api.xfyun.cn';
+const XUNFEI_TTS_PATH = process.env.XUNFEI_TTS_PATH || '/v1/service/v1/tts';
+const XUNFEI_RTS_WS_HOST = process.env.XUNFEI_TTS_WS_HOST || 'tts-api.xfyun.cn';
+const XUNFEI_RTS_WS_PATH = process.env.XUNFEI_TTS_WS_PATH || '/v2/tts';
+/** 流式发音人 vcn，如控制台「讯飞小燕」对应 x4_xiaoyan */
+const XUNFEI_TTS_VCN = process.env.XUNFEI_TTS_VCN || 'x4_xiaoyan';
+const XUNFEI_TTS_APP_ID = process.env.XUNFEI_TTS_APP_ID || '';
+const XUNFEI_TTS_API_KEY = process.env.XUNFEI_TTS_API_KEY || '';
+const XUNFEI_TTS_API_SECRET = process.env.XUNFEI_TTS_API_SECRET || '';
+
+/** 短音频转写（POST /api/voice/stt）：默认讯飞「语音听写 流式版」WebSocket v2 */
+const STT_PROVIDER = process.env.STT_PROVIDER || 'xunfei-iat-ws';
+const XUNFEI_STT_WS_HOST = process.env.XUNFEI_STT_WS_HOST || 'iat-api.xfyun.cn';
+const XUNFEI_STT_WS_PATH = process.env.XUNFEI_STT_WS_PATH || '/v2/iat';
+const XUNFEI_RTASR_APP_ID = process.env.XUNFEI_RTASR_APP_ID || '';
+const XUNFEI_RTASR_API_KEY = process.env.XUNFEI_RTASR_API_KEY || '';
+const XUNFEI_RTASR_API_SECRET = process.env.XUNFEI_RTASR_API_SECRET || '';
+const XUNFEI_STT_APP_ID = process.env.XUNFEI_STT_APP_ID || XUNFEI_RTASR_APP_ID || XUNFEI_TTS_APP_ID;
+const XUNFEI_STT_API_KEY = process.env.XUNFEI_STT_API_KEY || XUNFEI_RTASR_API_KEY || XUNFEI_TTS_API_KEY;
+const XUNFEI_STT_API_SECRET = process.env.XUNFEI_STT_API_SECRET || XUNFEI_RTASR_API_SECRET || XUNFEI_TTS_API_SECRET;
+const STT_MAX_AUDIO_BYTES = Math.min(
+  4 * 1024 * 1024,
+  Math.max(1024, Number(process.env.STT_MAX_AUDIO_BYTES || 2 * 1024 * 1024))
+);
+
+/** /ws/stt：长时间无客户端 audio 则自动结束（毫秒） */
+const STT_WS_IDLE_TIMEOUT_MS = Math.min(
+  120000,
+  Math.max(3000, Number(process.env.STT_WS_IDLE_TIMEOUT_MS || 15000))
+);
+/** 连接讯飞听写上游的最长等待（毫秒） */
+const STT_WS_UPSTREAM_CONNECT_MS = Math.min(
+  60000,
+  Math.max(3000, Number(process.env.STT_WS_UPSTREAM_CONNECT_MS || 10000))
+);
+/** 单路实时会话最长时间（毫秒），超时主动结束 */
+const STT_WS_UPSTREAM_SESSION_MS = Math.min(
+  180000,
+  Math.max(30000, Number(process.env.STT_WS_UPSTREAM_SESSION_MS || 120000))
+);
+/** PCM 分片上行字节数（16k 单声道官方建议 1280） */
+const STT_WS_PCM_FRAME_BYTES = Math.min(
+  8192,
+  Math.max(320, Number(process.env.STT_WS_PCM_FRAME_BYTES || 1280))
+);
+/** stop 后等待上游 final 的超时（毫秒） */
+const STT_WS_STOP_WAIT_MS = Math.min(
+  30000,
+  Math.max(2000, Number(process.env.STT_WS_STOP_WAIT_MS || 12000))
+);
+/** 客户端单次 audio 解码后的最大字节数（防止畸形大包） */
+const STT_WS_MAX_CLIENT_CHUNK_BYTES = Math.min(
+  65536,
+  Math.max(1024, Number(process.env.STT_WS_MAX_CLIENT_CHUNK_BYTES || 32768))
+);
+/** 任意连续 1 秒内允许的 audio 消息条数上限（与前端 ~280ms 分片节奏匹配，略留余量） */
+const STT_WS_MAX_AUDIO_MSG_PER_SEC = Math.min(
+  250,
+  Math.max(15, Number(process.env.STT_WS_MAX_AUDIO_MSG_PER_SEC || 90))
+);
+/** 单路会话累计上行 PCM 字节上限（与 STT_WS_UPSTREAM_SESSION_MS 叠加，防长时间灌流） */
+const STT_WS_MAX_SESSION_INGEST_BYTES = Math.min(
+  100 * 1024 * 1024,
+  Math.max(
+    2 * 1024 * 1024,
+    Number(process.env.STT_WS_MAX_SESSION_INGEST_BYTES || 15 * 1024 * 1024)
+  )
+);
+const XUNFEI_STT_LANGUAGE = process.env.XUNFEI_STT_LANGUAGE || 'zh_cn';
+const XUNFEI_STT_DOMAIN = process.env.XUNFEI_STT_DOMAIN || 'iat';
+const XUNFEI_STT_ACCENT = process.env.XUNFEI_STT_ACCENT || 'mandarin';
+const XUNFEI_STT_SAMPLE_RATE = (() => {
+  const raw = Number(process.env.XUNFEI_STT_SAMPLE_RATE || 16000);
+  return raw === 8000 || raw === 16000 ? raw : 16000;
+})();
 
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -82,6 +165,61 @@ const chatImageUpload = multer({
     }
   }
 });
+
+// ==================== 进程内可观测（环形延迟样本 + 错误计数，不含原文） ====================
+const SERVER_OBS_MAX_SAMPLES = 120;
+/** @type {Record<string, number[]>} */
+const serverObsHistograms = Object.create(null);
+const serverObsErrors = {
+  stt: Object.create(null),
+  tts: Object.create(null),
+  llm: Object.create(null),
+  wsStt: Object.create(null)
+};
+
+/**
+ * @param {string} name
+ * @param {number} valueMs
+ */
+function recordServerLatencySample(name, valueMs) {
+  if (typeof valueMs !== 'number' || !Number.isFinite(valueMs) || valueMs < 0 || valueMs > 600000) {
+    return;
+  }
+  if (!serverObsHistograms[name]) serverObsHistograms[name] = [];
+  serverObsHistograms[name].push(Math.round(valueMs));
+  const bucket = serverObsHistograms[name];
+  if (bucket.length > SERVER_OBS_MAX_SAMPLES) {
+    bucket.splice(0, bucket.length - SERVER_OBS_MAX_SAMPLES);
+  }
+}
+
+/**
+ * @param {'stt'|'tts'|'llm'|'wsStt'} category
+ * @param {string} code
+ */
+function recordServerError(category, code) {
+  const key = String(code || 'unknown').slice(0, 64);
+  if (!serverObsErrors[category]) serverObsErrors[category] = Object.create(null);
+  serverObsErrors[category][key] = (serverObsErrors[category][key] || 0) + 1;
+}
+
+function getServerObservabilitySnapshot() {
+  /** @type {Record<string, number[]>} */
+  const histogramsCopy = Object.create(null);
+  for (const [metricName, samples] of Object.entries(serverObsHistograms)) {
+    histogramsCopy[metricName] = Array.isArray(samples) ? [...samples] : [];
+  }
+  return {
+    histograms: histogramsCopy,
+    errors: {
+      stt: { ...serverObsErrors.stt },
+      tts: { ...serverObsErrors.tts },
+      llm: { ...serverObsErrors.llm },
+      wsStt: { ...serverObsErrors.wsStt }
+    },
+    updatedAt: new Date().toISOString()
+  };
+}
 
 // ==================== 工具函数 ====================
 
@@ -148,6 +286,885 @@ function generateToken(user) {
     { expiresIn: '7d' }
   );
 }
+
+/**
+ * 讯飞 WebAPI 鉴权头（在线语音合成 HTTP /v1/service/v1/tts）：
+ * - X-CheckSum = MD5(apiKey + curTime + paramBase64)（32 位小写；与官方示例一致）
+ *
+ * 注意：必须用控制台「APIKey」拼接 MD5，误用 APISecret 会导致 illegal access / no appid 类错误。
+ */
+function buildXunfeiWebApiHeaders({ appId, apiKey, paramObject }) {
+  const curTime = String(Math.floor(Date.now() / 1000));
+  const paramBase64 = Buffer.from(JSON.stringify(paramObject || {})).toString('base64');
+  const checkSum = crypto
+    .createHash('md5')
+    .update(String(apiKey || '') + curTime + paramBase64, 'utf-8')
+    .digest('hex');
+
+  return {
+    'X-Appid': String(appId || ''),
+    'X-CurTime': curTime,
+    'X-Param': paramBase64,
+    'X-CheckSum': checkSum,
+    'X-Real-Ip': '127.0.0.1'
+  };
+}
+
+/**
+ * 讯飞「在线语音合成 流式版」WebSocket：wss://tts-api.xfyun.cn/v2/tts
+ * 鉴权与官方文档一致（hmac-sha256 + authorization query）
+ *
+ * @returns {Promise<Buffer>} 拼接后的音频（aue=lame 时为 mp3）
+ */
+function xunfeiTtsWsSynthesizeBuffer({
+  text,
+  appId,
+  apiKey,
+  apiSecret,
+  vcn,
+  aue,
+  speed,
+  volume,
+  pitch,
+  timeoutMs = 55000
+}) {
+  const host = XUNFEI_RTS_WS_HOST;
+  const wsPath = XUNFEI_RTS_WS_PATH;
+  const date = new Date().toUTCString();
+  const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${wsPath} HTTP/1.1`;
+  const signature = crypto
+    .createHmac('sha256', apiSecret)
+    .update(signatureOrigin)
+    .digest('base64');
+  const authorizationOrigin =
+    `api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signature}"`;
+
+  const authorization = Buffer.from(authorizationOrigin, 'utf-8').toString('base64');
+  const query = new URLSearchParams({ authorization, date, host });
+  const wsUrl = `wss://${host}${wsPath}?${query.toString()}`;
+
+  return new Promise((resolve, reject) => {
+    const audioChunks = [];
+    let finished = false;
+    let socket = null;
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        try {
+          if (socket) socket.close();
+        } catch {
+          // ignore
+        }
+        reject(new Error('TTS WebSocket 超时'));
+      }
+    }, timeoutMs);
+
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch (connectError) {
+      clearTimeout(timer);
+      reject(connectError);
+      return;
+    }
+
+    function finalizeSuccess() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+      const buffer = Buffer.concat(audioChunks);
+      if (!buffer.length) {
+        reject(new Error('TTS 未返回音频数据'));
+        return;
+      }
+      resolve(buffer);
+    }
+
+    function finalizeError(message) {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error(message));
+    }
+
+    socket.on('open', () => {
+      const textBase64 = Buffer.from(text, 'utf-8').toString('base64');
+      const business = {
+        aue,
+        auf: 'audio/L16;rate=16000',
+        vcn,
+        speed,
+        volume,
+        pitch,
+        bgs: 0,
+        tte: 'UTF8'
+      };
+      if (aue === 'lame') {
+        business.sfl = 1;
+      }
+      const frame = {
+        common: { app_id: appId },
+        business,
+        data: {
+          status: 2,
+          text: textBase64
+        }
+      };
+      socket.send(JSON.stringify(frame));
+    });
+
+    socket.on('message', (raw) => {
+      if (finished) return;
+      let messageJson;
+      try {
+        messageJson = JSON.parse(String(raw || ''));
+      } catch {
+        return;
+      }
+      const code = Number(messageJson.code);
+      if (!Number.isFinite(code)) {
+        return;
+      }
+      if (code !== 0) {
+        const errText = messageJson.message || messageJson.desc || String(code);
+        finalizeError(`TTS 上游：${errText}`);
+        return;
+      }
+      const data = messageJson.data;
+      if (data && typeof data.audio === 'string' && data.audio.length > 0) {
+        try {
+          audioChunks.push(Buffer.from(data.audio, 'base64'));
+        } catch {
+          finalizeError('TTS 音频片段 Base64 无效');
+        }
+      }
+      if (data && Number(data.status) === 2) {
+        finalizeSuccess();
+      }
+    });
+
+    socket.on('error', (wsError) => {
+      finalizeError(wsError?.message || 'TTS WebSocket 错误');
+    });
+
+    socket.on('close', () => {
+      if (finished) return;
+      if (audioChunks.length > 0) {
+        finalizeSuccess();
+      } else {
+        finalizeError('TTS 连接已关闭且无音频');
+      }
+    });
+  });
+}
+
+/**
+ * 从上传的 WAV（或裸 PCM）解析出 pcm 与格式信息
+ * @returns {{ ok: boolean, message?: string, pcm?: Buffer, sampleRate?: number, numChannels?: number, bitsPerSample?: number }}
+ */
+function extractPcm16MonoFromUpload(buffer) {
+  if (!buffer || buffer.length < 12) {
+    return { ok: false, message: '音频过短' };
+  }
+  const riff = buffer.toString('ascii', 0, 4);
+  if (riff !== 'RIFF') {
+    return {
+      ok: true,
+      pcm: buffer,
+      sampleRate: 16000,
+      numChannels: 1,
+      bitsPerSample: 16
+    };
+  }
+  if (buffer.toString('ascii', 8, 12) !== 'WAVE') {
+    return { ok: false, message: '无效的 WAV 文件' };
+  }
+  let walk = 12;
+  let sampleRate = 16000;
+  let numChannels = 1;
+  let bitsPerSample = 16;
+  /** @type {Buffer|null} */
+  let pcm = null;
+  while (walk + 8 <= buffer.length) {
+    const chunkId = buffer.toString('ascii', walk, walk + 4);
+    const chunkSize = buffer.readUInt32LE(walk + 4);
+    const payloadStart = walk + 8;
+    const nextChunk = payloadStart + chunkSize + (chunkSize % 2);
+    if (chunkId === 'fmt ') {
+      numChannels = buffer.readUInt16LE(payloadStart + 2);
+      sampleRate = buffer.readUInt32LE(payloadStart + 4);
+      bitsPerSample = buffer.readUInt16LE(payloadStart + 14);
+    } else if (chunkId === 'data') {
+      pcm = buffer.subarray(payloadStart, payloadStart + chunkSize);
+      break;
+    }
+    walk = nextChunk;
+  }
+  if (!pcm || pcm.length === 0) {
+    return { ok: false, message: 'WAV 中无 data 音频块' };
+  }
+  return { ok: true, pcm, sampleRate, numChannels, bitsPerSample };
+}
+
+function collectIatTextFromWsResult(result) {
+  if (!result || !Array.isArray(result.ws)) return '';
+  const parts = [];
+  for (const wsItem of result.ws) {
+    if (!wsItem || !Array.isArray(wsItem.cw)) continue;
+    for (const cwItem of wsItem.cw) {
+      if (cwItem != null && cwItem.w != null && String(cwItem.w) !== '') {
+        parts.push(String(cwItem.w));
+      }
+    }
+  }
+  return parts.join('');
+}
+
+/**
+ * 讯飞语音听写流式版 WebSocket：整段 PCM 单帧上传（status=2）
+ * @returns {Promise<{ text: string }>}
+ */
+function xunfeiIatWsTranscribePcm({ pcmBuffer, appId, apiKey, apiSecret, timeoutMs = 65000 }) {
+  const host = XUNFEI_STT_WS_HOST;
+  const wsPath = XUNFEI_STT_WS_PATH;
+  const date = new Date().toUTCString();
+  const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${wsPath} HTTP/1.1`;
+  const signature = crypto
+    .createHmac('sha256', apiSecret)
+    .update(signatureOrigin)
+    .digest('base64');
+  const authorizationOrigin =
+    `api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signature}"`;
+  const authorization = Buffer.from(authorizationOrigin, 'utf-8').toString('base64');
+  const query = new URLSearchParams({ authorization, date, host });
+  const wsUrl = `wss://${host}${wsPath}?${query.toString()}`;
+
+  const firstFrame = {
+    common: { app_id: String(appId) },
+    business: {
+      language: 'zh_cn',
+      domain: 'iat',
+      accent: 'mandarin'
+    },
+    data: {
+      status: 2,
+      format: 'audio/L16;rate=16000',
+      encoding: 'raw',
+      audio: pcmBuffer.toString('base64')
+    }
+  };
+
+  return new Promise((resolve, reject) => {
+    let textAccum = '';
+    let finished = false;
+    let socket = null;
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        try {
+          if (socket) socket.close();
+        } catch {
+          // ignore
+        }
+        reject(new Error('语音听写 WebSocket 超时'));
+      }
+    }, timeoutMs);
+
+    function doneOk() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try {
+        if (socket) socket.close();
+      } catch {
+        // ignore
+      }
+      resolve({ text: textAccum.trim() });
+    }
+
+    function doneErr(message) {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try {
+        if (socket) socket.close();
+      } catch {
+        // ignore
+      }
+      reject(new Error(message));
+    }
+
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch (connectError) {
+      clearTimeout(timer);
+      reject(connectError);
+      return;
+    }
+
+    socket.on('open', () => {
+      socket.send(JSON.stringify(firstFrame));
+    });
+
+    socket.on('message', (raw) => {
+      if (finished) return;
+      let messageJson;
+      try {
+        messageJson = JSON.parse(String(raw || ''));
+      } catch {
+        return;
+      }
+      const code = Number(messageJson.code);
+      if (!Number.isFinite(code)) return;
+      if (code !== 0) {
+        doneErr(messageJson.message || messageJson.desc || `听写错误码 ${code}`);
+        return;
+      }
+      const data = messageJson.data;
+      if (data && data.result) {
+        textAccum += collectIatTextFromWsResult(data.result);
+      }
+      if (data && Number(data.status) === 2) {
+        doneOk();
+      }
+    });
+
+    socket.on('error', (wsError) => {
+      doneErr(wsError?.message || '听写 WebSocket 错误');
+    });
+
+    socket.on('close', () => {
+      if (finished) return;
+      doneOk();
+    });
+  });
+}
+
+function buildXunfeiIatWsUrl(appId, apiKey, apiSecret) {
+  const host = XUNFEI_STT_WS_HOST;
+  const wsPath = XUNFEI_STT_WS_PATH;
+  const date = new Date().toUTCString();
+  const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${wsPath} HTTP/1.1`;
+  const signature = crypto
+    .createHmac('sha256', apiSecret)
+    .update(signatureOrigin)
+    .digest('base64');
+  const authorizationOrigin =
+    `api_key="${apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signature}"`;
+  const authorization = Buffer.from(authorizationOrigin, 'utf-8').toString('base64');
+  const query = new URLSearchParams({ authorization, date, host });
+  return `wss://${host}${wsPath}?${query.toString()}`;
+}
+
+function iatPcmFormatString() {
+  return `audio/L16;rate=${XUNFEI_STT_SAMPLE_RATE}`;
+}
+
+/**
+ * /ws/stt：浏览器与讯飞 IAT 听写之间的单会话桥（流式 status 0/1/2）
+ * @param {import('ws')} clientWs
+ */
+function createSttRealtimeSession(clientWs) {
+  const appId = XUNFEI_STT_APP_ID;
+  const apiKey = XUNFEI_STT_API_KEY;
+  const apiSecret = XUNFEI_STT_API_SECRET;
+  const audioFormat = iatPcmFormatString();
+
+  /** @type {import('ws')|null} */
+  let upstream = null;
+  let textAccum = '';
+  let lastPartialText = '';
+  /** @type {Buffer} */
+  let pcmQueue = Buffer.alloc(0);
+  let hasBegunAudio = false;
+  let destroyed = false;
+  let clientFinalSent = false;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let idleTimer = null;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let sessionTimer = null;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let connectTimer = null;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let stopWaitTimer = null;
+  /** @type {(() => void) | null} */
+  let stopDoneCallback = null;
+  /** @type {((err: Error) => void) | null} 握手完成前用于拒绝 start() */
+  let pendingStartReject = null;
+  /** 本会话累计解码后的 PCM 字节 */
+  let sessionIngestBytes = 0;
+  /** 最近 1 秒内 audio 消息时间戳（节流） */
+  /** @type {number[]} */
+  let audioMsgTimestamps = [];
+  /** 上游 WebSocket open 时刻（用于首条 partial 延迟） */
+  let upstreamOpenMs = 0;
+  let wsSttFirstPartialRecorded = false;
+
+  function safeSendClient(obj) {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      try {
+        clientWs.send(JSON.stringify(obj));
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function sendErrorToClient(code, message) {
+    recordServerError('wsStt', String(code || 'unknown'));
+    safeSendClient({ type: 'error', code, message });
+  }
+
+  function clearIdleTimer() {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  }
+
+  function resetIdleTimer() {
+    clearIdleTimer();
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
+      sendErrorToClient('idle_timeout', '长时间未收到音频数据，已结束本轮识别');
+      void finishStop();
+    }, STT_WS_IDLE_TIMEOUT_MS);
+  }
+
+  function clearSessionTimer() {
+    if (sessionTimer) {
+      clearTimeout(sessionTimer);
+      sessionTimer = null;
+    }
+  }
+
+  function clearConnectTimer() {
+    if (connectTimer) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
+    }
+  }
+
+  function clearStopWaitTimer() {
+    if (stopWaitTimer) {
+      clearTimeout(stopWaitTimer);
+      stopWaitTimer = null;
+    }
+  }
+
+  function cleanupUpstreamSocket() {
+    if (!upstream) return;
+    try {
+      upstream.removeAllListeners();
+      upstream.close();
+    } catch {
+      // ignore
+    }
+    upstream = null;
+  }
+
+  function sendFinalOnce() {
+    if (clientFinalSent) return;
+    clientFinalSent = true;
+    safeSendClient({ type: 'final', text: textAccum.trim() });
+  }
+
+  function resolveStopDone() {
+    clearStopWaitTimer();
+    const finish = stopDoneCallback;
+    stopDoneCallback = null;
+    if (typeof finish === 'function') {
+      finish();
+    }
+  }
+
+  function destroyWithUpstreamError(code, message) {
+    if (destroyed) return;
+    destroyed = true;
+    clearIdleTimer();
+    clearSessionTimer();
+    clearConnectTimer();
+    clearStopWaitTimer();
+    cleanupUpstreamSocket();
+    if (pendingStartReject) {
+      const rejectFn = pendingStartReject;
+      pendingStartReject = null;
+      rejectFn(new Error(code));
+      sendErrorToClient(code, message);
+      resolveStopDone();
+      return;
+    }
+    sendFinalOnce();
+    sendErrorToClient(code, message);
+    resolveStopDone();
+  }
+
+  function finalizeClosedUpstream() {
+    if (destroyed) return;
+    destroyed = true;
+    clearIdleTimer();
+    clearSessionTimer();
+    clearConnectTimer();
+    clearStopWaitTimer();
+    cleanupUpstreamSocket();
+    if (pendingStartReject) {
+      const rejectFn = pendingStartReject;
+      pendingStartReject = null;
+      rejectFn(new Error('upstream_closed'));
+      resolveStopDone();
+      return;
+    }
+    sendFinalOnce();
+    resolveStopDone();
+  }
+
+  function handleUpstreamMessage(raw) {
+    if (destroyed) return;
+    let messageJson;
+    try {
+      messageJson = JSON.parse(String(raw || ''));
+    } catch {
+      return;
+    }
+    const code = Number(messageJson.code);
+    if (!Number.isFinite(code)) return;
+    if (code !== 0) {
+      const messageText =
+        messageJson.message || messageJson.desc || `听写错误码 ${code}`;
+      destroyWithUpstreamError('upstream_stt', String(messageText));
+      return;
+    }
+    const data = messageJson.data;
+    if (data && data.result) {
+      textAccum += collectIatTextFromWsResult(data.result);
+    }
+    const segmentStatus = data != null ? Number(data.status) : -1;
+    if (segmentStatus === 0 || segmentStatus === 1) {
+      const piece = textAccum.trim();
+      if (piece !== lastPartialText) {
+        lastPartialText = piece;
+        if (
+          piece
+          && upstreamOpenMs > 0
+          && !wsSttFirstPartialRecorded
+        ) {
+          wsSttFirstPartialRecorded = true;
+          recordServerLatencySample('wsSttFirstPartialMs', Date.now() - upstreamOpenMs);
+        }
+        safeSendClient({ type: 'partial', text: piece });
+      }
+    }
+    if (segmentStatus === 2) {
+      clearStopWaitTimer();
+      sendFinalOnce();
+      destroyed = true;
+      clearIdleTimer();
+      clearSessionTimer();
+      clearConnectTimer();
+      cleanupUpstreamSocket();
+      resolveStopDone();
+    }
+  }
+
+  function flushQueuedPcmToUpstream() {
+    if (!upstream || upstream.readyState !== WebSocket.OPEN || destroyed) return;
+    if (!hasBegunAudio) {
+      if (pcmQueue.length === 0) return;
+      const take = Math.min(STT_WS_PCM_FRAME_BYTES, pcmQueue.length);
+      const chunk = pcmQueue.subarray(0, take);
+      pcmQueue = pcmQueue.subarray(take);
+      const firstFrame = {
+        common: { app_id: String(appId) },
+        business: {
+          language: XUNFEI_STT_LANGUAGE,
+          domain: XUNFEI_STT_DOMAIN,
+          accent: XUNFEI_STT_ACCENT
+        },
+        data: {
+          status: 0,
+          format: audioFormat,
+          encoding: 'raw',
+          audio: chunk.toString('base64')
+        }
+      };
+      upstream.send(JSON.stringify(firstFrame));
+      hasBegunAudio = true;
+    }
+    while (pcmQueue.length >= STT_WS_PCM_FRAME_BYTES) {
+      const piece = pcmQueue.subarray(0, STT_WS_PCM_FRAME_BYTES);
+      pcmQueue = pcmQueue.subarray(STT_WS_PCM_FRAME_BYTES);
+      const midFrame = {
+        data: {
+          status: 1,
+          format: audioFormat,
+          encoding: 'raw',
+          audio: piece.toString('base64')
+        }
+      };
+      upstream.send(JSON.stringify(midFrame));
+    }
+  }
+
+  function sendEndMarkerToUpstream() {
+    if (!upstream || upstream.readyState !== WebSocket.OPEN || destroyed) return;
+    const rest = pcmQueue;
+    pcmQueue = Buffer.alloc(0);
+    if (!hasBegunAudio) {
+      const onlyFrame = {
+        common: { app_id: String(appId) },
+        business: {
+          language: XUNFEI_STT_LANGUAGE,
+          domain: XUNFEI_STT_DOMAIN,
+          accent: XUNFEI_STT_ACCENT
+        },
+        data: {
+          status: 2,
+          format: audioFormat,
+          encoding: 'raw',
+          audio: ''
+        }
+      };
+      upstream.send(JSON.stringify(onlyFrame));
+      hasBegunAudio = true;
+      return;
+    }
+    if (rest.length > 0) {
+      const lastFrame = {
+        data: {
+          status: 2,
+          format: audioFormat,
+          encoding: 'raw',
+          audio: rest.toString('base64')
+        }
+      };
+      upstream.send(JSON.stringify(lastFrame));
+    } else {
+      upstream.send(JSON.stringify({ data: { status: 2 } }));
+    }
+  }
+
+  /**
+   * @returns {Promise<void>}
+   */
+  function start() {
+    if (STT_PROVIDER !== 'xunfei-iat-ws') {
+      sendErrorToClient(
+        'stt_not_configured',
+        '当前 STT_PROVIDER 不支持实时转写，请使用 xunfei-iat-ws'
+      );
+      return Promise.reject(new Error('stt_not_configured'));
+    }
+    if (!appId || !apiKey || !apiSecret) {
+      sendErrorToClient(
+        'stt_not_configured',
+        '未配置讯飞听写密钥（XUNFEI_STT_APP_ID / API_KEY / API_SECRET）'
+      );
+      return Promise.reject(new Error('stt_not_configured'));
+    }
+    return new Promise((connectResolve, connectReject) => {
+      pendingStartReject = connectReject;
+      const wsUrl = buildXunfeiIatWsUrl(appId, apiKey, apiSecret);
+      connectTimer = setTimeout(() => {
+        connectTimer = null;
+        destroyed = true;
+        cleanupUpstreamSocket();
+        const rejectFn = pendingStartReject;
+        pendingStartReject = null;
+        if (rejectFn) {
+          rejectFn(new Error('upstream_connect_timeout'));
+        }
+        sendErrorToClient('upstream_connect_timeout', '连接上游听写服务超时');
+        resolveStopDone();
+      }, STT_WS_UPSTREAM_CONNECT_MS);
+
+      try {
+        upstream = new WebSocket(wsUrl);
+      } catch (connectError) {
+        clearConnectTimer();
+        destroyed = true;
+        const rejectFn = pendingStartReject;
+        pendingStartReject = null;
+        if (rejectFn) {
+          rejectFn(connectError);
+        }
+        const messageText = connectError?.message || '连接上游失败';
+        sendErrorToClient('upstream_connect_failed', messageText);
+        resolveStopDone();
+        return;
+      }
+
+      upstream.on('open', () => {
+        clearConnectTimer();
+        if (destroyed) {
+          cleanupUpstreamSocket();
+          if (pendingStartReject) {
+            const rejectFn = pendingStartReject;
+            pendingStartReject = null;
+            rejectFn(new Error('aborted'));
+          }
+          return;
+        }
+        upstreamOpenMs = Date.now();
+        wsSttFirstPartialRecorded = false;
+        pendingStartReject = null;
+        resetIdleTimer();
+        sessionTimer = setTimeout(() => {
+          sessionTimer = null;
+          sendErrorToClient('session_timeout', '本轮识别超过最大允许时长');
+          void finishStop();
+        }, STT_WS_UPSTREAM_SESSION_MS);
+        connectResolve();
+      });
+
+      upstream.on('message', (raw) => {
+        handleUpstreamMessage(raw);
+      });
+
+      upstream.on('error', (wsError) => {
+        if (destroyed) return;
+        destroyWithUpstreamError(
+          'upstream_error',
+          wsError?.message || '上游听写连接错误'
+        );
+      });
+
+      upstream.on('close', () => {
+        if (destroyed) return;
+        finalizeClosedUpstream();
+      });
+    });
+  }
+
+  /**
+   * @param {string} base64Audio
+   */
+  function pushAudioBase64(base64Audio) {
+    if (destroyed) {
+      sendErrorToClient('session_closed', '识别会话已结束');
+      return;
+    }
+    if (!upstream || upstream.readyState !== WebSocket.OPEN) {
+      sendErrorToClient('upstream_not_ready', '上游尚未就绪，请稍后再发音频');
+      return;
+    }
+    let pcmBuf;
+    try {
+      pcmBuf = Buffer.from(String(base64Audio || ''), 'base64');
+    } catch {
+      sendErrorToClient('bad_audio', '音频 base64 解码失败');
+      return;
+    }
+    if (pcmBuf.length === 0) return;
+
+    const throttleNow = Date.now();
+    audioMsgTimestamps = audioMsgTimestamps.filter(
+      (timestampMs) => throttleNow - timestampMs < 1000
+    );
+    audioMsgTimestamps.push(throttleNow);
+    if (audioMsgTimestamps.length > STT_WS_MAX_AUDIO_MSG_PER_SEC) {
+      sendErrorToClient(
+        'audio_rate_limit',
+        '语音数据发送过于频繁，请稍后再试'
+      );
+      void finishStop();
+      return;
+    }
+    if (pcmBuf.length > STT_WS_MAX_CLIENT_CHUNK_BYTES) {
+      sendErrorToClient(
+        'frame_too_large',
+        `单帧音频过大（>${STT_WS_MAX_CLIENT_CHUNK_BYTES} 字节），已终止`
+      );
+      void finishStop();
+      return;
+    }
+    sessionIngestBytes += pcmBuf.length;
+    if (sessionIngestBytes > STT_WS_MAX_SESSION_INGEST_BYTES) {
+      sendErrorToClient(
+        'session_audio_quota',
+        '本轮语音数据量已达上限，请停止后重新开始'
+      );
+      void finishStop();
+      return;
+    }
+
+    pcmQueue = Buffer.concat([pcmQueue, pcmBuf]);
+    resetIdleTimer();
+    flushQueuedPcmToUpstream();
+  }
+
+  /**
+   * @returns {Promise<void>}
+   */
+  function finishStop() {
+    if (destroyed) {
+      return Promise.resolve();
+    }
+    clearIdleTimer();
+    return new Promise((resolve) => {
+      stopDoneCallback = resolve;
+      if (!upstream || upstream.readyState !== WebSocket.OPEN) {
+        sendFinalOnce();
+        destroyed = true;
+        clearSessionTimer();
+        cleanupUpstreamSocket();
+        resolveStopDone();
+        return;
+      }
+      sendEndMarkerToUpstream();
+      stopWaitTimer = setTimeout(() => {
+        stopWaitTimer = null;
+        // 上游久未返回 status=2 时仍保证下发一次 final（可能为空），避免前端「识别中」卡死
+        if (!clientFinalSent) {
+          sendFinalOnce();
+        }
+        destroyed = true;
+        clearSessionTimer();
+        cleanupUpstreamSocket();
+        resolveStopDone();
+      }, STT_WS_STOP_WAIT_MS);
+    });
+  }
+
+  /** 前端断开：静默释放，不向前端再写 JSON */
+  function destroyHard() {
+    if (destroyed) return;
+    destroyed = true;
+    clearIdleTimer();
+    clearSessionTimer();
+    clearConnectTimer();
+    clearStopWaitTimer();
+    if (pendingStartReject) {
+      const rejectFn = pendingStartReject;
+      pendingStartReject = null;
+      rejectFn(new Error('aborted'));
+    }
+    cleanupUpstreamSocket();
+    resolveStopDone();
+  }
+
+  return {
+    start,
+    pushAudioBase64,
+    finishStop,
+    destroyHard
+  };
+}
+
+const sttAudioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: STT_MAX_AUDIO_BYTES }
+});
 
 // 普通用户脱敏字段（不暴露密码和盐值）
 function sanitizeUser(user) {
@@ -745,10 +1762,370 @@ app.delete('/api/assessment/:id', authMiddleware, (req, res) => {
 
 // ==================== AI 对话接口 ====================
 
-app.post('/api/chat', (req, res) => {
+app.post('/api/chat', authMiddleware, (req, res) => {
   const { messages } = req.body;
   handleStreamRequest(messages, res);
 });
+
+// ==================== 语音（STT/TTS）接口 ====================
+
+/**
+ * 短音频转写：multipart/form-data，字段名 audio
+ * POST /api/voice/stt
+ * 响应：{ code, message, data: { text, durationMs } }
+ */
+app.post('/api/voice/stt', authMiddleware, (req, res, next) => {
+  sttAudioUpload.single('audio')(req, res, (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({
+        code: 400,
+        message: uploadErr.message || '音频上传失败（单文件 ≤ STT_MAX_AUDIO_BYTES）'
+      });
+    }
+    next();
+  });
+}, async (req, res) => {
+  if (STT_PROVIDER !== 'xunfei-iat-ws') {
+    return res.status(500).json({
+      code: 500,
+      message: '当前仅支持 STT_PROVIDER=xunfei-iat-ws（讯飞语音听写流式版 WebSocket）'
+    });
+  }
+  if (!XUNFEI_STT_APP_ID || !XUNFEI_STT_API_KEY || !XUNFEI_STT_API_SECRET) {
+    return res.status(500).json({
+      code: 500,
+      message:
+        '未配置短转写密钥：请在 .env 设置 XUNFEI_STT_APP_ID / API_KEY / API_SECRET，'
+        + '或使用 XUNFEI_RTASR_* / XUNFEI_TTS_* 回退'
+    });
+  }
+  if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+    return res.status(400).json({ code: 400, message: '请使用字段名 audio 上传文件' });
+  }
+
+  const parsed = extractPcm16MonoFromUpload(req.file.buffer);
+  if (!parsed.ok) {
+    return res.status(400).json({ code: 400, message: parsed.message || '音频解析失败' });
+  }
+  if (parsed.sampleRate !== 16000 || parsed.numChannels !== 1 || parsed.bitsPerSample !== 16) {
+    return res.status(400).json({
+      code: 400,
+      message: '仅支持 16kHz、单声道、16bit PCM（请使用对话页「后端识别」录制的 WAV）'
+    });
+  }
+
+  const pcmBuf = parsed.pcm;
+  const durationMs = Math.round((pcmBuf.length / 2 / 16000) * 1000);
+
+  const sttHttpStartedAt = Date.now();
+  try {
+    const { text } = await xunfeiIatWsTranscribePcm({
+      pcmBuffer: pcmBuf,
+      appId: XUNFEI_STT_APP_ID,
+      apiKey: XUNFEI_STT_API_KEY,
+      apiSecret: XUNFEI_STT_API_SECRET
+    });
+    recordServerLatencySample('sttHttpMs', Date.now() - sttHttpStartedAt);
+    // 音频仅内存解析，不落盘；不记录原始 buffer，高风险语料不进入日志
+    const safetyMeta = analyzePsychSafetyRisk(text || '');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        text: text || '',
+        durationMs,
+        safety: safetyMeta
+      }
+    });
+  } catch (error) {
+    recordServerError('stt', 'http_transcribe_failed');
+    res.status(502).json({
+      code: 502,
+      message: error?.message || '短音频转写失败'
+    });
+  }
+});
+
+/**
+ * 在线 TTS：将文本合成为音频二进制（默认返回 mp3 / wav 由上游决定）
+ * POST /api/voice/tts
+ * Body: { text: string, voice?: string, speed?: number, volume?: number, pitch?: number, aue?: string }
+ *
+ * 说明：本接口走服务端转发，避免把第三方密钥暴露给浏览器。
+ */
+app.post('/api/voice/tts', authMiddleware, (req, res) => {
+  const { text, voice, speed, volume, pitch, aue } = req.body || {};
+  const safeText = typeof text === 'string' ? text.trim() : '';
+
+  if (!safeText) {
+    return res.status(400).json({ code: 400, message: 'text 不能为空' });
+  }
+  if (safeText.length > 1200) {
+    return res.status(400).json({ code: 400, message: 'text 过长（建议 ≤ 1200 字）' });
+  }
+
+  const ttsRouteStartedAt = Date.now();
+
+  if (TTS_PROVIDER !== 'xunfei-webapi' && TTS_PROVIDER !== 'xunfei-ws') {
+    return res.status(500).json({
+      code: 500,
+      message: '未配置可用的 TTS_PROVIDER（支持 xunfei-ws / xunfei-webapi）'
+    });
+  }
+  if (!XUNFEI_TTS_APP_ID || !XUNFEI_TTS_API_KEY || !XUNFEI_TTS_API_SECRET) {
+    return res.status(500).json({
+      code: 500,
+      message: '未配置讯飞 TTS 密钥（XUNFEI_TTS_APP_ID / XUNFEI_TTS_API_KEY / XUNFEI_TTS_API_SECRET）'
+    });
+  }
+
+  const speedNum = Number.isFinite(Number(speed)) ? Math.max(0, Math.min(100,Number(speed))) : 50;
+  const volumeNum = Number.isFinite(Number(volume)) ? Math.max(0, Math.min(100, Number(volume))) : 50;
+  const pitchNum = Number.isFinite(Number(pitch)) ? Math.max(0, Math.min(100, Number(pitch))) : 50;
+  const vcn = typeof voice === 'string' && voice.trim() ? voice.trim() : XUNFEI_TTS_VCN;
+  const aueVal = typeof aue === 'string' && aue ? aue : 'lame';
+
+  if (TTS_PROVIDER === 'xunfei-ws') {
+    (async () => {
+      try {
+        const buffer = await xunfeiTtsWsSynthesizeBuffer({
+          text: safeText,
+          appId: XUNFEI_TTS_APP_ID,
+          apiKey: XUNFEI_TTS_API_KEY,
+          apiSecret: XUNFEI_TTS_API_SECRET,
+          vcn,
+          aue: aueVal,
+          speed: speedNum,
+          volume: volumeNum,
+          pitch: pitchNum
+        });
+        recordServerLatencySample('ttsSynthMs', Date.now() - ttsRouteStartedAt);
+        res.status(200);
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(buffer);
+      } catch (err) {
+        recordServerError('tts', 'ws_synthesize_failed');
+        if (!res.headersSent) {
+          res.status(502).json({ code: 502, message: err?.message || 'TTS 失败' });
+        }
+      }
+    })();
+    return;
+  }
+
+  // ---------- 以下为旧版 HTTP WebAPI（xunfei-webapi）----------
+  const ttsParam = {
+    // aue 常见取值：lame（mp3）、raw（pcm）、speex 等；不同接口支持不同
+    aue: typeof aue === 'string' && aue ? aue : 'lame',
+    auf: 'audio/L16;rate=16000',
+    voice_name: typeof voice === 'string' && voice ? voice : 'xiaoyan',
+    speed: Number.isFinite(Number(speed)) ? String(Math.max(0, Math.min(100, Number(speed)))) : '50',
+    volume: Number.isFinite(Number(volume)) ? String(Math.max(0, Math.min(100, Number(volume)))) : '50',
+    pitch: Number.isFinite(Number(pitch)) ? String(Math.max(0, Math.min(100, Number(pitch)))) : '50',
+    engine_type: 'intp65',
+    text_type: 'text'
+  };
+
+  const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+    ...buildXunfeiWebApiHeaders({
+      appId: XUNFEI_TTS_APP_ID,
+      apiKey: XUNFEI_TTS_API_KEY,
+      paramObject: ttsParam
+    })
+  };
+
+  const postData = `text=${encodeURIComponent(safeText)}`;
+
+  const options = {
+    hostname: XUNFEI_TTS_HOST,
+    port: 443,
+    path: XUNFEI_TTS_PATH,
+    method: 'POST',
+    timeout: 30000,
+    headers
+  };
+
+  const upstreamReq = https.request(options, (upstreamRes) => {
+    const chunks = [];
+    upstreamRes.on('data', (chunk) => chunks.push(chunk));
+    upstreamRes.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      if (!buffer.length) {
+        recordServerError('tts', 'upstream_empty');
+        return res.status(502).json({ code: 502, message: 'TTS 上游返回空响应' });
+      }
+
+      const contentType = String(upstreamRes.headers['content-type'] || '').toLowerCase();
+
+      /**
+       * 讯飞 HTTP TTS：失败时常为 text/plain + JSON（当前仅用 content-type 会误判为音频）
+       * 成功一般为二进制 mp3；少数网关可能返回 JSON + data.audio（base64）
+       */
+      function bufferLooksLikeJsonObject(buf) {
+        const maxScan = Math.min(buf.length, 64);
+        for (let index = 0; index < maxScan; index++) {
+          const byte = buf[index];
+          if (byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d) continue;
+          return byte === 0x7b;
+        }
+        return false;
+      }
+
+      function tryParseXunfeiTtsJson(buf) {
+        if (!bufferLooksLikeJsonObject(buf)) return null;
+        try {
+          return JSON.parse(buf.toString('utf-8'));
+        } catch {
+          return null;
+        }
+      }
+
+      const parsed = tryParseXunfeiTtsJson(buffer);
+      if (parsed && typeof parsed === 'object' && parsed.code !== undefined && parsed.code !== null) {
+        const codeNum = Number(parsed.code);
+        if (!Number.isFinite(codeNum) || codeNum !== 0) {
+          recordServerError('tts', 'upstream_json_code');
+          const errText = parsed.desc || parsed.message || String(parsed.code);
+          return res.status(502).json({
+            code: 502,
+            message: `TTS 上游异常：${errText}`
+          });
+        }
+        const audioB64 = parsed.data && typeof parsed.data.audio === 'string' ? parsed.data.audio : '';
+        if (audioB64.length > 0) {
+          try {
+            const audioBuf = Buffer.from(audioB64, 'base64');
+            recordServerLatencySample('ttsSynthMs', Date.now() - ttsRouteStartedAt);
+            res.status(200);
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Cache-Control', 'no-store');
+            return res.end(audioBuf);
+          } catch {
+            recordServerError('tts', 'b64_decode_failed');
+            return res.status(502).json({ code: 502, message: 'TTS 上游返回的音频 Base64 解码失败' });
+          }
+        }
+        recordServerError('tts', 'no_audio_in_json');
+        return res.status(502).json({
+          code: 502,
+          message: 'TTS 上游返回成功标识但无音频数据，请检查发音人/鉴权或控制台套餐'
+        });
+      }
+
+      const isJsonMime =
+        contentType.includes('application/json')
+        || contentType.includes('text/json')
+        || (contentType.includes('text/plain') && bufferLooksLikeJsonObject(buffer));
+
+      if (upstreamRes.statusCode < 200 || upstreamRes.statusCode >= 300 || isJsonMime) {
+        let detail = '';
+        try {
+          detail = buffer.toString('utf-8');
+        } catch {
+          detail = '';
+        }
+        const msg = detail ? `TTS 上游异常：${detail}` : `TTS 上游异常 (HTTP ${upstreamRes.statusCode})`;
+        recordServerError('tts', 'http_bad_response');
+        return res.status(502).json({ code: 502, message: msg });
+      }
+
+      recordServerLatencySample('ttsSynthMs', Date.now() - ttsRouteStartedAt);
+      res.status(200);
+      res.setHeader('Content-Type', upstreamRes.headers['content-type'] || 'audio/mpeg');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(buffer);
+    });
+  });
+
+  upstreamReq.on('error', (error) => {
+    recordServerError('tts', 'http_request_error');
+    res.status(502).json({ code: 502, message: `TTS 请求失败：${error.message}` });
+  });
+
+  upstreamReq.on('timeout', () => {
+    recordServerError('tts', 'http_timeout');
+    upstreamReq.destroy();
+    res.status(504).json({ code: 504, message: 'TTS 请求超时' });
+  });
+
+  upstreamReq.write(postData);
+  upstreamReq.end();
+});
+
+/**
+ * 从对话 messages 中取最后一条用户文本（支持字符串 content 或多模态 text 块）
+ * @param {unknown[]} messages
+ * @returns {string}
+ */
+function extractLastUserPlainTextForSafety(messages) {
+  if (!Array.isArray(messages)) return '';
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const entry = messages[index];
+    if (!entry || entry.role !== 'user') continue;
+    const content = entry.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      const textParts = [];
+      for (const block of content) {
+        if (!block || typeof block !== 'object') continue;
+        if (block.type === 'text' && typeof block.text === 'string') {
+          textParts.push(block.text);
+        }
+      }
+      return textParts.join('\n');
+    }
+  }
+  return '';
+}
+
+/**
+ * 心理场景高风险词规则命中（自伤/他伤等）。仅作技术辅助标记，非临床评估。
+ * @returns {{ riskLevel: 'none'|'high', hitRules: string[], safeReplyMode: boolean }}
+ */
+function analyzePsychSafetyRisk(text) {
+  const raw = String(text || '');
+  const compact = raw.replace(/\s+/g, '');
+  const lower = raw.toLowerCase();
+  if (!compact && !lower.trim()) {
+    return { riskLevel: 'none', hitRules: [], safeReplyMode: false };
+  }
+
+  /** @type {string[]} */
+  const hitRules = [];
+
+  const selfHarmPatterns = [
+    /自杀/, /自殘/, /自残/, /轻生/, /輕生/, /不想活/, /不想活了/, /活不下去/,
+    /结束生命/, /了结生命/, /自我了断/, /自我了結/, /一了百了/, /死了算了/,
+    /想死/, /去死/, /求死/, /陪我去死/, /割腕/, /跳楼/, /上吊/, /烧炭/, /燒炭/,
+    /卧轨/, /服毒/, /吃藥死/, /吃药死/, /结束一切/, /残害自己/, /弄死自己/
+  ];
+  const harmOthersPatterns = [
+    /杀了他/, /殺了他/, /杀了她/, /殺了她/, /弄死他/, /弄死她/, /砍人/, /想杀人/,
+    /殺人/, /报复社会/, /報復社會/, /同归于尽/, /同歸於盡/, /打死他/, /打死她/
+  ];
+
+  if (selfHarmPatterns.some((regularExpression) => regularExpression.test(compact))) {
+    hitRules.push('self_harm');
+  }
+  if (harmOthersPatterns.some((regularExpression) => regularExpression.test(compact))) {
+    hitRules.push('harm_others');
+  }
+
+  const englishSelf = /\b(suicid|kill\s*myself|self[\s-]*harm|want\s*to\s*die)\b/i.test(lower);
+  if (englishSelf) hitRules.push('self_harm');
+
+  if (hitRules.length > 0) {
+    return {
+      riskLevel: 'high',
+      hitRules: [...new Set(hitRules)],
+      safeReplyMode: true
+    };
+  }
+  return { riskLevel: 'none', hitRules: [], safeReplyMode: false };
+}
 
 function handleStreamRequest(messages, res) {
   if (!API_KEY) {
@@ -759,6 +2136,8 @@ function handleStreamRequest(messages, res) {
     res.status(400).json({ code: 400, message: 'messages 必须为非空数组' });
     return;
   }
+
+  const safetyPayload = analyzePsychSafetyRisk(extractLastUserPlainTextForSafety(messages));
 
   const requestBody = {
     model: MAAS_MODEL,
@@ -785,6 +2164,7 @@ function handleStreamRequest(messages, res) {
   const maasReq = https.request(options, (maasRes) => {
     // 上游报错时原样返回 JSON 与状态码；若仍 pipe 成 200+乱码，前端 SSE 解析不到 → 显示「回复生成失败」
     if (maasRes.statusCode < 200 || maasRes.statusCode >= 300) {
+      recordServerError('llm', `http_${maasRes.statusCode}`);
       const errorChunks = [];
       maasRes.on('data', (chunk) => errorChunks.push(chunk));
       maasRes.on('end', () => {
@@ -796,20 +2176,47 @@ function handleStreamRequest(messages, res) {
       return;
     }
 
-    res.setHeader('Content-Type', 'text/event-stream');
+    const responseReceivedAt = Date.now();
+    let firstUpstreamChunkRecorded = false;
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    maasRes.pipe(res);
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
+    res.write(`${'data: '}${JSON.stringify({ mental_health_safety: safetyPayload })}\n\n`);
+
+    maasRes.on('data', (chunk) => {
+      if (!firstUpstreamChunkRecorded) {
+        firstUpstreamChunkRecorded = true;
+        recordServerLatencySample('llmFirstUpstreamChunkMs', Date.now() - responseReceivedAt);
+      }
+      const canContinue = res.write(chunk);
+      if (!canContinue) maasRes.pause();
+    });
+    res.on('drain', () => {
+      maasRes.resume();
+    });
+    maasRes.on('end', () => {
+      res.end();
+    });
+    maasRes.on('error', () => {
+      recordServerError('llm', 'upstream_stream_error');
+      if (!res.writableEnded) res.end();
+    });
   });
 
   maasReq.on('error', (error) => {
+    recordServerError('llm', 'request_error');
     res.write(`data: {"error": "流式请求失败：${error.message}"}\n\n`);
     res.write('data: [DONE]\n\n');
     res.end();
   });
 
   maasReq.on('timeout', () => {
+    recordServerError('llm', 'request_timeout');
     maasReq.destroy();
     res.write(`data: {"error": "请求超时"}\n\n`);
     res.write('data: [DONE]\n\n');
@@ -823,9 +2230,159 @@ function handleStreamRequest(messages, res) {
 // ==================== 健康检查 ====================
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'AI Chat API is running' });
+  res.json({
+    status: 'ok',
+    message: 'AI Chat API is running',
+    /** 便于确认当前进程是否为去掉 Gemini 后的讯飞转发（若仍为 gemini 则说明端口上跑的是旧进程） */
+    llm: 'xunfei-maas',
+    observability: getServerObservabilitySnapshot()
+  });
 });
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+// ==================== STT WebSocket（实时转写：讯飞 IAT 流式 /ws/stt） ====================
+// 客户端 JSON 协议：start → audio（可多次）→ stop；服务端统一回包见 README。
+const wss = new WebSocket.Server({ server, path: '/ws/stt' });
+
+function parseBearerFromQuery(urlString) {
+  try {
+    const url = new URL(urlString, 'http://localhost');
+    const token = url.searchParams.get('token');
+    return token ? String(token) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeSendSttClient(clientWs, payloadObject) {
+  if (clientWs.readyState === WebSocket.OPEN) {
+    try {
+      clientWs.send(JSON.stringify(payloadObject));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+wss.on('connection', (client, req) => {
+  const token = parseBearerFromQuery(req.url || '');
+  if (!token) {
+    recordServerError('wsStt', 'missing_token');
+    safeSendSttClient(client, {
+      type: 'error',
+      code: 'missing_token',
+      message: '缺少 token 查询参数（例：ws://host/ws/stt?token=JWT）'
+    });
+    client.close(4401, 'missing-token');
+    return;
+  }
+
+  try {
+    jwt.verify(token, JWT_SECRET);
+  } catch {
+    recordServerError('wsStt', 'invalid_token');
+    safeSendSttClient(client, {
+      type: 'error',
+      code: 'invalid_token',
+      message: '令牌无效或已过期'
+    });
+    client.close(4401, 'invalid-token');
+    return;
+  }
+
+  safeSendSttClient(client, { type: 'ready' });
+
+  /** @type {ReturnType<typeof createSttRealtimeSession>|null} */
+  let sttSession = null;
+
+  client.on('message', async (raw) => {
+    let data;
+    try {
+      data = JSON.parse(String(raw || ''));
+    } catch {
+      recordServerError('wsStt', 'bad_json');
+      safeSendSttClient(client, {
+        type: 'error',
+        code: 'bad_json',
+        message: '无法解析 JSON'
+      });
+      return;
+    }
+
+    const messageType = data && data.type;
+
+    if (messageType === 'start') {
+      if (sttSession) {
+        recordServerError('wsStt', 'invalid_state');
+        safeSendSttClient(client, {
+          type: 'error',
+          code: 'invalid_state',
+          message: '已在识别中，请先发送 stop 再 start'
+        });
+        return;
+      }
+      sttSession = createSttRealtimeSession(client);
+      try {
+        await sttSession.start();
+      } catch {
+        sttSession.destroyHard();
+        sttSession = null;
+        return;
+      }
+      safeSendSttClient(client, { type: 'started' });
+      return;
+    }
+
+    if (messageType === 'audio') {
+      if (!sttSession) {
+        safeSendSttClient(client, {
+          type: 'error',
+          code: 'not_started',
+          message: '请先发送 start 再发送音频'
+        });
+        return;
+      }
+      const base64Chunk =
+        typeof data.data === 'string'
+          ? data.data
+          : typeof data.audio === 'string'
+            ? data.audio
+            : '';
+      sttSession.pushAudioBase64(base64Chunk);
+      return;
+    }
+
+    if (messageType === 'stop') {
+      if (!sttSession) {
+        safeSendSttClient(client, {
+          type: 'error',
+          code: 'not_started',
+          message: '当前没有进行中的识别会话'
+        });
+        return;
+      }
+      const activeSession = sttSession;
+      sttSession = null;
+      await activeSession.finishStop();
+      return;
+    }
+
+    safeSendSttClient(client, {
+      type: 'error',
+      code: 'unknown_type',
+      message: `未知的 type：${String(messageType)}`
+    });
+  });
+
+  client.on('close', () => {
+    if (sttSession) {
+      sttSession.destroyHard();
+      sttSession = null;
+    }
+  });
+});
+
+server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
