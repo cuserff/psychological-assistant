@@ -5,7 +5,6 @@
     "nickname": "系统管理员",
     "password": "81d5c3dca35a3510b8601bbc879e201415b1753f6f78afc606f156fe8c25b24e2c2a90b156cd66bccdba04e01733a62e9aa0458e9e101db3786e3e821594b57d",
     "salt": "b7e4e3c6456a74b890a59b91066c6909",
-    "displayPassword": "admin123",
     "avatar": "girl",
     "role": "admin",
     "mentalHealthStatus": "未评估",
@@ -21,8 +20,7 @@
     "avatar": "",
     "createdAt": "2026-03-23T09:00:45.065Z",
     "mentalHealthStatus": "轻度焦虑",
-    "mentalHealthNote": "",
-    "displayPassword": ""
+    "mentalHealthNote": ""
   },
   {
     "id": "570e6dce-f458-4cf3-8e6f-eb3626d6cfc2",
@@ -33,8 +31,7 @@
     "avatar": "",
     "createdAt": "2026-03-23T09:15:38.737Z",
     "mentalHealthStatus": "轻度焦虑",
-    "mentalHealthNote": "",
-    "displayPassword": ""
+    "mentalHealthNote": ""
   },
   {
     "id": "a19dc382-9429-475d-ad9e-a17bf28c22ae",
@@ -45,19 +42,17 @@
     "avatar": "boy",
     "createdAt": "2026-03-23T09:21:43.648Z",
     "mentalHealthStatus": "中度焦虑",
-    "mentalHealthNote": "",
-    "displayPassword": "123456"
+    "mentalHealthNote": ""
   },
   {
     "id": "5ef181ca-9484-426d-866e-22987c4f2c36",
     "username": "002",
     "nickname": "002",
-    "password": "b7ae7cd194b129d95361be38d9b7f39b3b6ddc499db0cb9d6102bc395b7b3228fdd565936105f9f4149c709815df27b520a6b3d7e81322025802621aaa426728",
-    "salt": "c3aa27ddf1d0ca26b6f143448a8e60a3",
-    "displayPassword": "123456",
+    "password": "95c79d37b032a204227fda055fcec6f04b2e38b283e45f53f9f7def212a55d4253707d6bcb06a0eb36db49c45221c11baa570d18d597d418e4310241aecf6e69",
+    "salt": "80272a2915f2b2532cef772b43e9a194",
     "avatar": "",
     "role": "user",
-    "mentalHealthStatus": "需要关注",
+    "mentalHealthStatus": "中度焦虑",
     "mentalHealthNote": "",
     "createdAt": "2026-03-23T09:48:29.921Z"
   },
@@ -67,7 +62,6 @@
     "nickname": "研",
     "password": "74961b3df6532473f9208bcc99bcb280206638b557011d80a58fcb98222438bb18e9815e304ac8dde5dbed5945229e4d6255a29089543bdc31d48dc3d7b406af",
     "salt": "4583a920a70bf0d4aa950dd81fddaf1c",
-    "displayPassword": "123456",
     "avatar": "boy",
     "role": "user",
     "mentalHealthStatus": "中度抑郁",
@@ -80,11 +74,34 @@
     "nickname": "004",
     "password": "3b098ea3393ff5994ead0627e6a5496a20742540b383b6b778ab73ddcd77e2aacede780de615212d75aa606f80f4e952895b9d424558849314f0780d1075bf0d",
     "salt": "c810c7fbbe4d260c51d4f74f33c78fca",
-    "displayPassword": "123456",
     "avatar": "",
     "role": "user",
     "mentalHealthStatus": "中度抑郁",
     "mentalHealthNote": "同步自最新测评：PHQ-9 抑郁症筛查量表，结果：中度抑郁",
     "createdAt": "2026-03-25T16:10:15.841Z"
+  },
+  {
+    "id": "0ceee46c-8106-4bc5-b455-2115de3dbbec",
+    "username": "005",
+    "nickname": "005",
+    "password": "ac0fdf17f927070de95a02bb2de8463919f808850773127d13c9d24509bf4ae6904880c9d575cf911e0ff5433240c0eeab6954b0438936f1d746141bafa28a06",
+    "salt": "f5f0a4d402560741357370d60146cf7d",
+    "avatar": "",
+    "role": "user",
+    "mentalHealthStatus": "未评估",
+    "mentalHealthNote": "",
+    "createdAt": "2026-03-30T12:40:35.318Z"
+  },
+  {
+    "id": "67929441-3adb-49a6-9bf8-883b4e25c35e",
+    "username": "006",
+    "nickname": "006",
+    "password": "df54fef4f5643212bb30cdaaa0c242ad8eddff1d6893b922c7b5463a05f2a85284039451081a15bad1b88b5fed649a139c6b943b70131c84030af7e5c713f8ff",
+    "salt": "e52f3d692a138f432ca8e501225d898b",
+    "avatar": "",
+    "role": "user",
+    "mentalHealthStatus": "未评估",
+    "mentalHealthNote": "",
+    "createdAt": "2026-03-30T12:41:16.048Z"
   }
 ]

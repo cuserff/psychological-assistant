@@ -114,7 +114,7 @@ function enableEditing() {
 </script>
 
 <template>
-  <el-card shadow="hover">
+  <el-card shadow="hover" class="mood-checkin-card">
     <template #header>
       <div class="card-header">
         <el-icon><EditPen /></el-icon>
@@ -175,6 +175,16 @@ function enableEditing() {
 </template>
 
 <style scoped>
+.mood-checkin-card {
+  --el-card-bg-color: var(--app-color-fill-muted);
+  --el-card-border-color: var(--app-color-border);
+  color: var(--app-color-text);
+}
+
+.mood-checkin-card :deep(.el-card__header) {
+  background-color: transparent;
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -198,7 +208,7 @@ function enableEditing() {
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.25s ease;
-  background-color: #f8fafc;
+  background-color: var(--app-color-bg-elevated);
   opacity: 0.6;
 }
 
@@ -209,14 +219,14 @@ function enableEditing() {
 
 .mood-item:hover {
   opacity: 0.85;
-  background-color: #f1f5f9;
+  background-color: color-mix(in srgb, var(--app-color-primary) 10%, var(--app-color-bg-elevated));
 }
 
 /* 选中态：柔和阴影 + 轻微放大 + 全透明度 */
 .mood-item.active {
   opacity: 1;
-  background-color: #e0f2fe;
-  box-shadow: 0 2px 12px rgba(2, 132, 199, 0.2);
+  background-color: color-mix(in srgb, var(--app-color-primary) 20%, var(--app-color-bg-elevated));
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--app-color-primary) 28%, transparent);
   transform: scale(1.05);
 }
 
@@ -227,7 +237,7 @@ function enableEditing() {
 
 .mood-label {
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-color-text-secondary);
   margin-top: 6px;
 }
 

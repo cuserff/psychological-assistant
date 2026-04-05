@@ -5,9 +5,13 @@ import { getToken } from '../utils/storage'
  * 发送对话请求，返回原始 Response（用于 SSE 流式读取）
  *
  * @param {Array<{role: string, content: string}>} messages 完整的多轮对话消息列表
+ * @param {Object} [options]
+ * @param {AbortSignal} [options.signal]
+ * @param {number} [options.max_tokens] 传给上游的最大生成 token（由后端裁剪合法范围）
+ * @param {number} [options.temperature]
  * @returns {Promise<Response>}
  */
-export function sendChatRequest(messages, { signal } = {}) {
+export function sendChatRequest(messages, { signal, max_tokens, temperature } = {}) {
   const token = getToken()
   const headers = {
     'Content-Type': 'application/json',
@@ -17,10 +21,18 @@ export function sendChatRequest(messages, { signal } = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
+  const payload = { messages }
+  if (max_tokens !== undefined && max_tokens !== null) {
+    payload.max_tokens = max_tokens
+  }
+  if (temperature !== undefined && temperature !== null) {
+    payload.temperature = temperature
+  }
+
   return fetch(`${BASE_URL}/api/chat`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify(payload),
     signal
   })
 }

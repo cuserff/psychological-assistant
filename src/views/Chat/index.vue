@@ -3,25 +3,36 @@ import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useChatStore } from '../../store/chatStore'
 import { useUserStore } from '../../store/userStore'
 import { useChat } from '../../composables/useChat'
-import { useTtsPlayer, TTS_MIN_SEGMENT_CHARS } from '../../composables/useTtsPlayer'
+import { useTtsPlayer } from '../../composables/useTtsPlayer'
+import { splitSpeakableSegments } from '../../utils/ttsSpeakSegments'
 import { renderMarkdown } from '../../utils/markdown'
 import { compressImageFileToBlob } from '../../utils/imageCompress'
 import { resolveUploadUrl } from '../../api/config'
 import { uploadChatImages } from '../../api/chat'
 import VoiceRecorder from '../../components/input/VoiceRecorder.vue'
 import { analyzeLocalPsychRiskText } from '../../utils/psychSafetyLocal'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import {
   Plus,
   Delete,
   ChatLineSquare,
-  CloseBold
+  CloseBold,
+  Microphone,
+  Notebook
 } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import {
   loadClientObservabilityFromStorage,
   getClientObservabilitySnapshot,
   recordInterruptResult
 } from '../../utils/chatObservability'
+import { useDiaryStore } from '../../store/diaryStore'
+import {
+  buildDiaryPlainTextFromMessages,
+  getDefaultDiaryTitle,
+  formatDiaryContentFromSummary
+} from '../../utils/diaryFromMessages'
+import { summarizeDiaryTranscript } from '../../api/diary'
 import avatarBoy from '../../assets/images/avatar-boy.svg'
 import avatarGirl from '../../assets/images/avatar-girl.svg'
 // ?url：确保得到字符串 URL，供 img 使用（避免 .svg 在某些构建链下非常规导出）
@@ -29,12 +40,20 @@ import avatarAiCompanion from '../../assets/images/avatar-ai-companion.svg?url'
 
 const chatStore = useChatStore()
 const userStore = useUserStore()
+const router = useRouter()
+const diaryStore = useDiaryStore()
 
 const userAvatarMap = { boy: avatarBoy, girl: avatarGirl }
 /** 与顶栏 / 个人中心一致的头像（用于聊天气泡旁） */
 const userChatAvatarSrc = computed(
   () => userAvatarMap[userStore.avatar] || avatarGirl
 )
+
+/** 当前会话是否有可写入日记的正文（含 [图片] 占位） */
+const canSaveDiary = computed(() => {
+  const messageList = chatStore.activeSession?.messages
+  return buildDiaryPlainTextFromMessages(messageList).trim().length > 0
+})
 const { sendMessage, stopGeneration: stopChatGeneration } = useChat()
 const ttsPlayer = useTtsPlayer()
 
@@ -68,7 +87,7 @@ function dismissCrisisSafetyBanner() {
   crisisBannerDismissed.value = true
 }
 
-/** 后端短语音识别返回的 safety 与发消息路径统一写入 Store */
+/** 后端 STT 定稿时的 safety 写入（HTTP 短转写场景更丰富；实时 WS 多为占位） */
 function handleSttResultDetail(detail) {
   const safety = detail?.safety
   if (safety && typeof safety === 'object') {
@@ -78,7 +97,7 @@ function handleSttResultDetail(detail) {
 
 /** 语音会话总状态：供输入区旁提示 */
 const voiceRecorderListening = ref(false)
-/** STT 收尾：已停录、等待服务端 final */
+/** STT 收尾：已停录、等待上游 final 或浏览器 onend */
 const voiceRecognizing = ref(false)
 /** 语音识别短时间错误态（与 TTS 无关） */
 const voiceInputError = ref(false)
@@ -92,10 +111,17 @@ const voiceInputLiveText = ref('')
 const isVoiceInputLiveActive = ref(false)
 /** 胶囊麦克风 ref：统一打断时调用 interruptListening */
 const voiceRecorderRef = ref(null)
+
+function resolveInitialVoiceSttMode() {
+  const raw = String(import.meta.env.VITE_VOICE_STT_MODE || 'browser').toLowerCase()
+  return raw === 'backend' ? 'backend' : 'browser'
+}
+
 /**
- * 实时听写首选后端 WS；连接/上游失败时自动降为浏览器 Speech API（同页内保持）
+ * 默认浏览器 Web Speech；仅在 VITE_VOICE_STT_MODE=backend 时使用服务端 /ws/stt。
+ * 服务端失败时静默切换 browser，不弹提示（避免干扰）。
  */
-const voiceSttEffectiveMode = ref('backend')
+const voiceSttEffectiveMode = ref(resolveInitialVoiceSttMode())
 
 /**
  * 输入区「说完发送/仅回填」「播报开/关」胶囊：产品未就绪时隐藏，开发完成后改为 true
@@ -268,7 +294,7 @@ function beforeVoiceStart() {
   interruptVoiceAndAi()
 }
 
-/** WS/STT 不可用时的降级码：不视为用户操作错误 */
+/** 后端 WS／上游不可用时的降级码：自动切换到浏览器识别，不记为用户误操作 */
 const STT_FALLBACK_ERROR_CODES = new Set([
   'ws_error',
   'network',
@@ -282,7 +308,8 @@ const STT_FALLBACK_ERROR_CODES = new Set([
   'invalid_token',
   'missing_token',
   'ws-start-failed',
-  'stt-failed'
+  'stt-failed',
+  'stt_provider_unsupported'
 ])
 
 /**
@@ -296,9 +323,6 @@ function handleVoiceSpeechError(errPayload) {
   ) {
     voiceSttEffectiveMode.value = 'browser'
     voiceInputError.value = false
-    ElMessage.warning(
-      '实时听写不可用，已切换为浏览器语音识别（效果因浏览器而异）'
-    )
     return
   }
   voiceInputError.value = true
@@ -683,7 +707,7 @@ onBeforeUnmount(() => {
 watch(
   () => userStore.userInfo?.id,
   (userId) => {
-    voiceSttEffectiveMode.value = 'backend'
+    voiceSttEffectiveMode.value = resolveInitialVoiceSttMode()
     if (userId && !chatStore.isGenerating) {
       chatStore.loadSessions()
       scrollToBottom()
@@ -756,32 +780,6 @@ watch(
 // ==================== 流式文本 → 逐句触发在线 TTS ====================
 const lastAssistantSpokenLen = ref(0)
 const pendingSpeakBuffer = ref('')
-
-function splitSpeakableSegments(bufferText) {
-  // 按句末标点与换行切分；短于 TTS_MIN_SEGMENT_CHARS 的与前后合并后再播，避免零碎断句
-  const text = String(bufferText || '')
-  const segments = []
-  let startIndex = 0
-  let carryShort = ''
-  for (let index = 0; index < text.length; index++) {
-    const ch = text[index]
-    const isSentenceEnd =
-      ch === '。' || ch === '！' || ch === '？' || ch === '；' || ch === '\n'
-    if (!isSentenceEnd) continue
-    const piece = text.slice(startIndex, index + 1).trim()
-    startIndex = index + 1
-    if (!piece) continue
-    const merged = carryShort + piece
-    if (merged.length >= TTS_MIN_SEGMENT_CHARS) {
-      segments.push(merged)
-      carryShort = ''
-    } else {
-      carryShort = merged
-    }
-  }
-  const rest = carryShort + text.slice(startIndex)
-  return { segments, rest }
-}
 
 watch(
   () => {
@@ -1056,6 +1054,85 @@ function formatTime(isoString) {
     ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     : date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
 }
+
+/** 将当前会话保存为日记 */
+async function handleSaveDiary() {
+  const messageList = chatStore.activeSession?.messages || []
+  const plain = buildDiaryPlainTextFromMessages(messageList)
+  if (!plain.trim()) {
+    ElMessage.warning('当前会话没有可保存的内容')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('将当前会话保存为日记？', '保存为日记', {
+      type: 'info',
+      confirmButtonText: '下一步',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入日记标题（可留空使用默认）',
+      '日记标题',
+      {
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputPlaceholder: getDefaultDiaryTitle(),
+        inputValidator: (inputValue) => {
+          if (inputValue && inputValue.length > 80) return '标题不能超过 80 字'
+          return true
+        }
+      }
+    )
+    const trimmedTitle = (value || '').trim()
+    const loading = ElLoading.service({
+      lock: true,
+      text: '正在生成智能摘要…'
+    })
+    try {
+      let summary = null
+      try {
+        summary = await summarizeDiaryTranscript({ transcript: plain })
+      } catch {
+        summary = null
+      }
+      const hasStructured =
+        summary
+        && (
+          (Array.isArray(summary.moodKeywords) && summary.moodKeywords.length > 0)
+          || (summary.coreEvents && String(summary.coreEvents).trim())
+          || (summary.aiEncouragement && String(summary.aiEncouragement).trim())
+          || (summary.moodCurve?.points && summary.moodCurve.points.length > 0)
+        )
+      const content = hasStructured
+        ? formatDiaryContentFromSummary(summary, plain)
+        : plain
+      await diaryStore.createEntry({
+        ...(trimmedTitle ? { title: trimmedTitle } : {}),
+        content,
+        source: 'chat',
+        ...(hasStructured
+          ? {
+              moodKeywords: summary.moodKeywords,
+              coreEvents: summary.coreEvents,
+              aiEncouragement: summary.aiEncouragement,
+              moodCurve: summary.moodCurve
+            }
+          : {})
+      })
+      ElMessage.success(
+        hasStructured ? '已保存到日记（含智能摘要与心情曲线）' : '已保存到日记'
+      )
+    } finally {
+      loading.close()
+    }
+  } catch (error) {
+    if (error === 'cancel') return
+    ElMessage.error(error?.message || '保存失败')
+  }
+}
 </script>
 
 <template>
@@ -1104,6 +1181,28 @@ function formatTime(isoString) {
 
     <!-- 右侧：对话区 -->
     <div class="chat-container">
+      <div class="chat-voice-call-entry">
+        <el-button
+          size="small"
+          class="chat-save-diary-btn"
+          :disabled="!canSaveDiary"
+          @click="handleSaveDiary"
+        >
+          <el-icon class="chat-voice-call-icon"><Notebook /></el-icon>
+          保存为日记
+        </el-button>
+        <el-button
+          type="primary"
+          plain
+          size="small"
+          class="chat-voice-call-btn"
+          @click="router.push({ name: 'voiceCall' })"
+        >
+          <el-icon class="chat-voice-call-icon"><Microphone /></el-icon>
+          语音通话
+        </el-button>
+      </div>
+
       <el-alert
         v-if="showCrisisSafetyBanner"
         type="warning"
@@ -1562,6 +1661,19 @@ function formatTime(isoString) {
   background-color: var(--app-color-bg-chat);
   min-width: 0;
   min-height: 0;
+}
+
+.chat-voice-call-entry {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 8px 20px 0;
+}
+
+.chat-voice-call-icon {
+  margin-right: 6px;
 }
 
 .crisis-safety-banner {

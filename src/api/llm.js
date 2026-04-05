@@ -475,6 +475,7 @@ function tryConsumeMentalHealthSafetyPayload(payload, onMentalHealthSafety) {
  * @param {function(): void}        [callbacks.onComplete] 流正常结束时调用
  * @param {function(Error): void}   [callbacks.onError]    出错时调用（之后仍会 throw）
  * @param {Array<{role: string, content: string}>} [callbacks.fallbackContextMessages] 多模态被拒或网关报错时改发纯文本再试一轮
+ * @param {{ max_tokens?: number, temperature?: number }} [callbacks.llmParams] 可选生成参数（语音短答等场景）
  * @returns {Promise<void>}
  */
 export async function streamLLMResponse(
@@ -485,10 +486,17 @@ export async function streamLLMResponse(
     onComplete,
     onError,
     signal,
-    fallbackContextMessages
+    fallbackContextMessages,
+    llmParams
   } = {}
 ) {
-  let response = await sendChatRequest(contextMessages, { signal })
+  const requestOpts = { signal }
+  if (llmParams && typeof llmParams === 'object') {
+    if (llmParams.max_tokens != null) requestOpts.max_tokens = llmParams.max_tokens
+    if (llmParams.temperature != null) requestOpts.temperature = llmParams.temperature
+  }
+
+  let response = await sendChatRequest(contextMessages, requestOpts)
 
   if (
     !response.ok
@@ -496,7 +504,7 @@ export async function streamLLMResponse(
     && fallbackContextMessages.length > 0
     && contextHasMultimodalUserContent(contextMessages)
   ) {
-    response = await sendChatRequest(fallbackContextMessages, { signal })
+    response = await sendChatRequest(fallbackContextMessages, requestOpts)
   }
 
   if (!response.ok) {

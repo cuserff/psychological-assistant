@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { synthesizeTts } from '../api/voice'
 import { recordLatencySample, recordErrorCode } from '../utils/chatObservability'
+import { getTtsPlaybackRate, getTtsSynthSpeed } from '../utils/ttsPlaybackConfig'
 
 /**
  * 按标点切句后，字数不少于该阈值再单独入队，避免「一两字一停」。
@@ -79,8 +80,13 @@ function createSharedTtsPlayer() {
       typeof performance !== 'undefined' ? performance.now() : Date.now()
     let ttsFirstPlayRecorded = false
 
+    const defaultSynthSpeed = getTtsSynthSpeed()
+
     try {
-      const blob = await synthesizeTts(text, { signal: abortController.signal })
+      const blob = await synthesizeTts(text, {
+        signal: abortController.signal,
+        ...(defaultSynthSpeed != null ? { speed: defaultSynthSpeed } : {})
+      })
       if (currentAudioUrl) {
         URL.revokeObjectURL(currentAudioUrl)
         currentAudioUrl = ''
@@ -88,6 +94,10 @@ function createSharedTtsPlayer() {
       currentAudioUrl = URL.createObjectURL(blob)
       audioEl = new Audio(currentAudioUrl)
       audioEl.preload = 'auto'
+      const playbackRate = getTtsPlaybackRate()
+      if (playbackRate !== 1 && Number.isFinite(playbackRate)) {
+        audioEl.playbackRate = playbackRate
+      }
       await audioEl.play()
       if (!ttsFirstPlayRecorded) {
         ttsFirstPlayRecorded = true

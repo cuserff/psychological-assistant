@@ -10,7 +10,8 @@ import {
   User,
   Document,
   Management,
-  EditPen
+  EditPen,
+  Notebook
 } from '@element-plus/icons-vue'
 
 defineProps({
@@ -46,6 +47,11 @@ const userStore = useUserStore()
     <el-menu-item index="/chat">
       <el-icon><ChatRound /></el-icon>
       <template #title>AI 对话</template>
+    </el-menu-item>
+
+    <el-menu-item index="/diary">
+      <el-icon><Notebook /></el-icon>
+      <template #title>我的日记</template>
     </el-menu-item>
 
     <el-menu-item index="/assessment">

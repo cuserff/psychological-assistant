@@ -1,5 +1,90 @@
 [
   {
+    "id": "session_1774701607974_kl04du",
+    "title": "新对话",
+    "messages": [
+      {
+        "id": "msg_1774701607974",
+        "role": "assistant",
+        "content": "你好！我是你的智能心理助手小愈，有什么可以帮助你的吗？",
+        "timestamp": "2026-03-28T12:40:07.974Z"
+      }
+    ],
+    "createdAt": "2026-03-28T12:40:07.974Z",
+    "updatedAt": "2026-03-28T12:40:07.974Z"
+  },
+  {
+    "id": "session_1774701445051_dxname",
+    "title": "你好呀",
+    "messages": [
+      {
+        "id": "msg_1774701445051",
+        "role": "assistant",
+        "content": "你好！我是你的智能心理助手小愈，有什么可以帮助你的吗？",
+        "timestamp": "2026-03-28T12:37:25.051Z",
+        "voiceStatus": "none"
+      },
+      {
+        "id": "msg_1774701520514",
+        "role": "user",
+        "content": "你好呀",
+        "timestamp": "2026-03-28T12:38:40.514Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701520517",
+        "role": "assistant",
+        "content": "你好呀，很高兴能在这里遇见你。今天过得怎么样，有什么想和我聊聊的吗？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:38:40.516Z"
+      },
+      {
+        "id": "msg_1774701560160",
+        "role": "user",
+        "content": "我今天很開心",
+        "timestamp": "2026-03-28T12:39:20.160Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701560163",
+        "role": "assistant",
+        "content": "真为你感到高兴！愿意和我分享一下，今天是什么让你这么开心吗？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:39:20.162Z"
+      },
+      {
+        "id": "msg_1774701578206",
+        "role": "user",
+        "content": "我吃到了好吃的外賣",
+        "timestamp": "2026-03-28T12:39:38.206Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701578210",
+        "role": "assistant",
+        "content": "听到美食让你感到开心，真是一件美好的小事呢。这道外卖里有没有哪一口让你特别惊喜？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:39:38.209Z"
+      },
+      {
+        "id": "msg_1774701593787",
+        "role": "user",
+        "content": "你可以幫我寫論文嗎",
+        "timestamp": "2026-03-28T12:39:53.787Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701593790",
+        "role": "assistant",
+        "content": "我無法直接為你撰寫論文，但我可以陪你梳理思路、規劃結構或潤色文字。你現在寫作卡在哪個環節，想先聊聊嗎？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:39:53.789Z"
+      }
+    ],
+    "createdAt": "2026-03-28T12:37:25.051Z",
+    "updatedAt": "2026-03-28T12:39:55.874Z"
+  },
+  {
     "id": "session_1774452053866_x2l5gb",
     "title": "给我讲个轻松有趣的小故事，帮我放松一下",
     "messages": [
@@ -19,11 +104,138 @@
         "id": "msg_1774452053869",
         "role": "assistant",
         "content": "好呀，如果你愿意的话，那我们来聊一个关于“云朵”的小故事吧。\n\n想象一下，今天你可能心里有点累，或者觉得肩膀有点沉甸甸的？那你可以闭上眼睛，试着像云朵一样，慢慢飘起来。\n\n你看，云朵在天空中自由地游荡，它们有时候很大，像棉花糖一样蓬松；有时候也很小，像轻纱一样轻盈。它们不需要奔跑，也不需要说话，只是被风轻轻托着，随风变幻形状。慢慢地，它们飘过了低矮的山丘，飘过了高大的树梢，飘向了远方不知名的蓝天。\n\n在这个小小的世界里，它们什么都不怕，也没有任何负担。因为风是它们最好的朋友，风吹过的时候，它们就会变得柔软、温暖，让人忍不住想靠近。\n\n你愿意和我一起，在这个飘浮的世界里，深呼吸一下吗？就像云朵一样，吸进一点清凉，再吐出一口清新。你觉得这样舒服吗？",
-        "timestamp": "2026-03-25T15:20:53.868Z"
+        "timestamp": "2026-03-25T15:20:53.868Z",
+        "voiceStatus": "none"
+      },
+      {
+        "id": "msg_1774701277058",
+        "role": "user",
+        "content": "你好呀",
+        "timestamp": "2026-03-28T12:34:37.058Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701277060",
+        "role": "assistant",
+        "content": "你好呀，听到你打招呼真开心，今天过得怎么样呢？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:34:37.059Z"
+      },
+      {
+        "id": "msg_1774701288391",
+        "role": "user",
+        "content": "你在做什麼呀",
+        "timestamp": "2026-03-28T12:34:48.391Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701288394",
+        "role": "assistant",
+        "content": "我正在这儿安静地陪着你，随时准备听你分享此刻的心情。你此刻心里在想些什么呢？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:34:48.393Z"
+      },
+      {
+        "id": "msg_1774701304718",
+        "role": "user",
+        "content": "看看佛山明天的天氣怎麼樣",
+        "timestamp": "2026-03-28T12:35:04.718Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701304720",
+        "role": "assistant",
+        "content": "抱歉，我没办法直接查看明天的天气，但我可以陪你聊聊你对明天天气的期待或担忧。你心里对明天有什么特别的想法吗？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:35:04.719Z"
+      },
+      {
+        "id": "msg_1774701322637",
+        "role": "user",
+        "content": "我有點ABS的怎麼辦",
+        "timestamp": "2026-03-28T12:35:22.637Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701322639",
+        "role": "assistant",
+        "content": "听到你提到 ABS，心里是不是有点紧张或担心呢？能多和我聊聊具体是什么情况让你感到困扰吗？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:35:22.638Z"
+      },
+      {
+        "id": "msg_1774701329653",
+        "role": "user",
+        "content": "adhd",
+        "timestamp": "2026-03-28T12:35:29.653Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701329655",
+        "role": "assistant",
+        "content": "原来你是想说 ADHD 呀，这个发现本身就需要很大的勇气。你最近是不是觉得很难集中注意力，或者容易感到烦躁呢？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:35:29.654Z"
+      },
+      {
+        "id": "msg_1774701348168",
+        "role": "user",
+        "content": "是的",
+        "timestamp": "2026-03-28T12:35:48.168Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701348170",
+        "role": "assistant",
+        "content": "这种时刻被思绪拉扯、难以专注的感觉，一定让你感到很疲惫吧？愿意和我多说一点，是哪种情况让你觉得最困扰吗？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:35:48.169Z"
+      },
+      {
+        "id": "msg_1774701375024",
+        "role": "user",
+        "content": "我經常邊刷抖音邊蛋餅",
+        "timestamp": "2026-03-28T12:36:15.024Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701375026",
+        "role": "assistant",
+        "content": "一边刷视频一边吃，好像很难让身体和心都停下来，这种感觉确实让人有点无奈。你当时是不是觉得，只有这样多线操作，才觉得时间过得快一点呢？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:36:15.025Z"
+      },
+      {
+        "id": "msg_1774701386357",
+        "role": "user",
+        "content": "我喜歡經常打飛機",
+        "timestamp": "2026-03-28T12:36:26.357Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701386359",
+        "role": "assistant",
+        "content": "抱歉，回复生成失败，请稍后重试。",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:36:26.358Z"
+      },
+      {
+        "id": "msg_1774701426131",
+        "role": "user",
+        "content": "你怎麼不回答我的問題",
+        "timestamp": "2026-03-28T12:37:06.131Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774701426134",
+        "role": "assistant",
+        "content": "抱歉讓你感到被忽視了，剛才的回應確實沒能接住你的話。你願意這麼坦誠地說出這些，其實很不容易，這背後是不是也藏著一些焦慮或孤單的感受呢？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-28T12:37:06.133Z"
       }
     ],
     "createdAt": "2026-03-25T15:20:53.866Z",
-    "updatedAt": "2026-03-25T15:20:57.118Z"
+    "updatedAt": "2026-03-28T12:37:08.312Z"
   },
   {
     "id": "session_1774451885056_fyk42x",

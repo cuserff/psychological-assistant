@@ -23,6 +23,12 @@ const routes = [
     meta: { title: 'AI 对话' }
   },
   {
+    path: '/voice-call',
+    name: 'voiceCall',
+    component: () => import('../views/VoiceCall/index.vue'),
+    meta: { hideLayout: true, title: '语音通话' }
+  },
+  {
     path: '/assessment',
     name: 'assessment',
     component: () => import('../views/Assessment/index.vue'),
@@ -33,6 +39,18 @@ const routes = [
     name: 'assessmentDetail',
     component: () => import('../views/Assessment/Detail.vue'),
     meta: { title: '测评详情' }
+  },
+  {
+    path: '/diary',
+    name: 'diary',
+    component: () => import('../views/Diary/index.vue'),
+    meta: { title: '我的日记' }
+  },
+  {
+    path: '/diary/:id',
+    name: 'diaryDetail',
+    component: () => import('../views/Diary/Detail.vue'),
+    meta: { title: '日记详情' }
   },
   {
     path: '/profile',
@@ -86,7 +104,8 @@ router.beforeEach(async (to) => {
       try {
         await userStore.fetchUserInfo()
       } catch {
-        return { name: 'login' }
+        // 后端不可达时无法校验角色，回退首页而非登录（token 仍有效）
+        return userStore.token ? { name: 'home' } : { name: 'login' }
       }
     }
     if (!userStore.isAdmin) {

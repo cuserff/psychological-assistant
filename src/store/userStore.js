@@ -52,7 +52,11 @@ export const useUserStore = defineStore('user', () => {
       userInfo.value = res.data
       return res
     } catch (error) {
-      logout()
+      // 仅在 token 确实无效（401）时清除登录态；网络不可达时保留本地状态
+      const status = error?.response?.status || error?.status
+      if (status === 401) {
+        logout()
+      }
       throw error
     }
   }

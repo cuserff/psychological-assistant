@@ -4,40 +4,16 @@ import {
   buildContextMessagesTextOnly,
   streamLLMResponse,
   isVisionEnabled,
-  DEFAULT_MAX_ROUNDS
+  DEFAULT_MAX_ROUNDS,
+  SYSTEM_PROMPT
 } from '../api/llm'
+import {
+  VOICE_CALL_SYSTEM_APPEND,
+  postProcessVoiceAssistantBrief
+} from '../utils/voiceCallBrief'
 import { useTtsPlayer } from './useTtsPlayer'
 import { recordLatencySample, recordErrorCode } from '../utils/chatObservability'
-
-/**
- * 流式展示节奏（减轻「字蹦得太快」）：每隔若干毫秒往界面贴不超过指定字符数。
- * 在 .env.development 中可配：VITE_STREAM_REVEAL_MS、VITE_STREAM_CHARS_PER_TICK
- * 任一为 0 则关闭节流（与上游分包同速刷新，最省延迟）。
- */
-function getStreamRevealConfig() {
-  const rawInterval =
-    typeof import.meta !== 'undefined' && import.meta.env?.VITE_STREAM_REVEAL_MS
-  const rawChunk =
-    typeof import.meta !== 'undefined' && import.meta.env?.VITE_STREAM_CHARS_PER_TICK
-  const intervalMs =
-    rawInterval !== undefined && rawInterval !== ''
-      ? Number(rawInterval)
-      : 36
-  const charsPerTick =
-    rawChunk !== undefined && rawChunk !== ''
-      ? Number(rawChunk)
-      : 2
-  if (!Number.isFinite(intervalMs)) intervalMs = 36
-  if (!Number.isFinite(charsPerTick)) charsPerTick = 2
-  if (intervalMs <= 0 || charsPerTick <= 0) {
-    return { useThrottle: false, intervalMs: 0, charsPerTick: 0 }
-  }
-  return {
-    useThrottle: true,
-    intervalMs: Math.min(280, Math.max(12, intervalMs)),
-    charsPerTick: Math.min(24, Math.max(1, charsPerTick))
-  }
-}
+import { getStreamRevealConfig } from '../utils/streamRevealConfig'
 
 /**
  * 聊天核心组合式函数
@@ -76,6 +52,7 @@ export function useChat(options = {}) {
    * @param {Object} [sendOptions]
    * @param {string[]} [sendOptions.imageDataUrls] 已压缩的图片 data URL
    * @param {boolean} [sendOptions.fromVoice] 是否来自麦克风说完即发（写入 user 消息 voiceInputChannel）
+   * @param {boolean} [sendOptions.voiceCallBrief] 语音通话短答模式（system 约束 + 小 max_tokens + 结束后截断）
    * @throws {Error} 网络或 API 错误（由调用方 catch 处理 UI 提示）
    */
   async function sendMessage(content, sendOptions = {}) {
@@ -86,6 +63,7 @@ export function useChat(options = {}) {
       )
       : []
     const fromVoiceInput = Boolean(sendOptions.fromVoice)
+    const voiceCallBrief = Boolean(sendOptions.voiceCallBrief)
 
     if ((!text && imageDataUrls.length === 0) || chatStore.isGenerating) return
 
@@ -171,17 +149,32 @@ export function useChat(options = {}) {
       })
     }
 
+    const baseSystemPrompt =
+      systemPrompt !== undefined && systemPrompt !== null
+        ? systemPrompt
+        : SYSTEM_PROMPT
+    const effectiveSystemPrompt = voiceCallBrief
+      ? `${baseSystemPrompt}\n\n${VOICE_CALL_SYSTEM_APPEND}`
+      : baseSystemPrompt
+
+    /** 语音通话：硬限制输出长度，温度略保守 */
+    const voiceCallLlmParams = { max_tokens: 220, temperature: 0.62 }
+
     try {
       // 5. 截取上下文并把历史中的图片内联为多模态 content（异步）
       const contextMessages = await buildContextMessages(
         chatStore.activeSession.messages,
-        { maxRounds, systemPrompt, signal: abortController.signal }
+        {
+          maxRounds,
+          systemPrompt: effectiveSystemPrompt,
+          signal: abortController.signal
+        }
       )
 
       const textOnlyFallback = isVisionEnabled()
         ? buildContextMessagesTextOnly(chatStore.activeSession.messages, {
           maxRounds,
-          systemPrompt
+          systemPrompt: effectiveSystemPrompt
         })
         : undefined
 
@@ -214,7 +207,8 @@ export function useChat(options = {}) {
             revealTimerId = setTimeout(runRevealTick, revealConfig.intervalMs)
           }
         },
-        signal: abortController.signal
+        signal: abortController.signal,
+        llmParams: voiceCallBrief ? voiceCallLlmParams : undefined
       })
       if (revealConfig.useThrottle) {
         await waitUntilRevealQueueEmpty()
@@ -233,6 +227,17 @@ export function useChat(options = {}) {
     } finally {
       clearRevealTimer()
       flushAllPendingReveal()
+      if (voiceCallBrief && !aborted) {
+        const session = chatStore.activeSession
+        const assistantMsg = session?.messages?.[assistantMsgIndex]
+        if (assistantMsg?.role === 'assistant') {
+          const raw = String(assistantMsg.content ?? '')
+          const brief = postProcessVoiceAssistantBrief(raw)
+          if (brief !== raw) {
+            chatStore.setAssistantMessageContent(assistantMsgIndex, brief)
+          }
+        }
+      }
       chatStore.finalizeReply(assistantMsgIndex, { aborted })
       chatStore.isGenerating = false
       chatStore.clearCurrentAbortController()

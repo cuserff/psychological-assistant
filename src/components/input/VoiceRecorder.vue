@@ -14,14 +14,14 @@ const props = defineProps({
   /** 生成中等父级禁用交互 */
   disabled: { type: Boolean, default: false },
   /**
-   * browser：Web Speech API；backend：WebSocket /ws/stt 分片 PCM 实时听写（讯飞）
+   * backend：WebSocket /ws/stt（服务端讯飞）；browser：Web Speech API
    */
   sttMode: {
     type: String,
     default: 'browser',
     validator: (value) => ['browser', 'backend'].includes(value)
   },
-  /** 听写定稿时回调 text / safety 占位（浏览器内置识别无此结构） */
+  /** 后端听写定稿时回调（浏览器识别无服务端 safety，可不接） */
   onSttResultDetail: {
     type: Function,
     default: null
@@ -40,11 +40,29 @@ const emit = defineEmits([
   'recognizing-change',
   'transcript-change'
 ])
+
+/** 服务端 /ws/stt 失败即将改为浏览器识别时不弹 Toast（与父级静默降级一致） */
+const SUPPRESS_STT_FAILURE_TOAST = new Set([
+  'ws_error',
+  'network',
+  'timeout',
+  'upstream_connect_failed',
+  'upstream_connect_timeout',
+  'upstream_error',
+  'upstream_stt',
+  'stt_not_configured',
+  'upstream_closed',
+  'invalid_token',
+  'missing_token',
+  'ws-start-failed',
+  'stt-failed',
+  'stt_provider_unsupported'
+])
 const {
   isSupported,
   isListening,
   isRecognizing,
-  transcript,
+  currentSubtitle,
   error,
   clearError,
   startListening,
@@ -65,6 +83,15 @@ const {
     emit('recognizing-change', value)
   }
 })
+
+watch(
+  () => props.sttMode,
+  (nextMode, previousMode) => {
+    if (previousMode === 'backend' && nextMode === 'browser') {
+      clearError()
+    }
+  }
+)
 
 // tooltip 显示控制
 const showTooltip = ref(false)
@@ -119,8 +146,8 @@ watch(
   isListening,
   (listening) => {
     emit('listening-change', listening)
-    if (!listening && transcript.value.trim() && !props.disabled) {
-      emit('result', transcript.value.trim())
+    if (!listening && currentSubtitle.value.trim() && !props.disabled) {
+      emit('result', currentSubtitle.value.trim())
     }
   },
   { immediate: true }
@@ -129,6 +156,9 @@ watch(
 watch(error, (err) => {
   if (!err) return
   emit('speech-error', err)
+  if (props.sttMode === 'backend' && SUPPRESS_STT_FAILURE_TOAST.has(String(err.code || ''))) {
+    return
+  }
   // 关键错误给用户明确反馈（避免“静默失败”）
   if (
     err.code === 'not-allowed'
@@ -146,7 +176,7 @@ watch(error, (err) => {
 
 // 识别过程中的中间结果与定稿变化，实时抛给父组件
 watch(
-  transcript,
+  currentSubtitle,
   (text) => {
     emit('transcript-change', String(text || ''))
   },

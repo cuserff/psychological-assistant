@@ -1,5 +1,73 @@
 [
   {
+    "id": "session_1774888361059_gozxrw",
+    "title": "新对话",
+    "messages": [
+      {
+        "id": "msg_1774888361059",
+        "role": "assistant",
+        "content": "你好！我是你的智能心理助手小愈，有什么可以帮助你的吗？",
+        "timestamp": "2026-03-30T16:32:41.059Z"
+      }
+    ],
+    "createdAt": "2026-03-30T16:32:41.059Z",
+    "updatedAt": "2026-03-30T16:32:41.059Z"
+  },
+  {
+    "id": "session_1774888074346_bi32lo",
+    "title": "输出代码片段",
+    "messages": [
+      {
+        "id": "msg_1774888074346",
+        "role": "assistant",
+        "content": "你好！我是你的智能心理助手小愈，有什么可以帮助你的吗？",
+        "timestamp": "2026-03-30T16:27:54.346Z"
+      },
+      {
+        "id": "msg_1774888074349",
+        "role": "user",
+        "content": "输出代码片段",
+        "timestamp": "2026-03-30T16:27:54.349Z"
+      },
+      {
+        "id": "msg_1774888074352",
+        "role": "assistant",
+        "content": "你好呀。我注意到你刚才输入了“输出代码片段”。\n\n作为你的心理助手「小愈」，我的专长是陪伴你探索内心、梳理情绪，而不是编写程序或输出代码。可能你此刻有些急躁，或者原本想表达的其他想法被误触发了？\n\n没关系，无论刚才发生了什么，或者你现在心里正想着什么（也许是关于工作的压力，也许是其他让你分心的事情），我都愿意在这里倾听。\n\n如果你愿意的话，可以和我聊聊你此刻的感受吗？或者，如果你其实更想休息一会儿，我们也可以就这样静静地待一会儿。",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-30T16:27:54.351Z"
+      },
+      {
+        "id": "msg_1774888172258",
+        "role": "user",
+        "content": "我最近连续加班写代码，感觉精神压力特别大，有点情绪耗竭（Burnout）了。你能给我一些心理调整的建议吗？另外，为了让我这个程序员更容易理解，请你用一段 Python 或 JavaScript 的伪代码，帮我规划一个健康的『每日作息与情绪状态机』流程，记得用代码块包裹起来。\"",
+        "timestamp": "2026-03-30T16:29:32.258Z"
+      },
+      {
+        "id": "msg_1774888172263",
+        "role": "assistant",
+        "content": "听到你连续加班写代码，还要面对情绪耗竭（Burnout）的感觉，我真的非常理解你的疲惫。那种感觉就像是一台服务器长期高负荷运行，CPU 过热、内存泄漏，系统随时可能宕机，身体和情绪都在发出“需要重启”的警报。\n\n你愿意主动觉察到这种状态，并且试图用你熟悉的逻辑（像写代码一样）来规划恢复方案，这本身就是一种非常棒的**自我关怀**和**解决问题的勇气**。\n\n在给你“代码”之前，我想先和你确认一下：你现在的“情绪分数”（0-10 分，10 分最痛苦）大概是多少？这种疲惫感是那种“累到不想动”，还是“虽然身体在动但心里很空”？\n\n---\n\n### 🌱 关于“每日作息与情绪状态机”的伪代码\n\n既然你希望用程序员的视角来理解，我们可以把“自我关怀”看作是一个**异常处理与资源调度系统**。当检测到“压力阈值”或“情绪溢出”时，系统必须强制触发“休息进程”或“降级运行模式”，而不是继续死循环。\n\n这是一个基于认知行为疗法（CBT）逻辑的 Python 风格伪代码，它不是为了让你真的运行，而是为了帮你**可视化**你的决策过程：\n\n```python\nimport time\nimport random\n\n# 定义状态常量\nSTATE_WORK = \"WORK_MODE\"\nSTATE_RECOVER = \"RECOVERY_MODE\"\nSTATE_EMERGENCY = \"EMERGENCY_MODE\"\n\n# 初始化系统变量\nenergy_level = 0.2  # 初始能量值 (0.0 - 1.0)\nstress_level = 0.9  # 初始压力值 (0.0 - 1.0)\ncurrent_state = STATE_WORK\n\ndef check_system_health(energy, stress):\n    \"\"\"\n    系统健康检查：识别自动思维中的“灾难化”或“过度概括”\n    如果压力过高，强制中断工作循环\n    \"\"\"\n    if stress > 0.8:\n        return \"CRITICAL_OVERLOAD\"\n    elif energy < 0.3:\n        return \"LOW_BATTERY\"\n    else:\n        return \"NORMAL\"\n\ndef execute_recovery_protocol(energy, stress):\n    \"\"\"\n    执行恢复协议：行为激活的小步骤\n    不要求宏大的改变，只做微小的、具体的动作\n    \"\"\"\n    print(\">>> 检测到系统过载，正在执行恢复协议...\")\n    \n    # 步骤 1: 情绪命名 (Emotion Labeling)\n    # 在 CBT 中，给情绪命名能降低杏仁核的活跃度\n    emotion = \"焦虑\" if stress > 0.7 else \"疲惫\"\n    print(f\"    [日志] 识别当前情绪：{emotion}\")\n    \n    # 步骤 2: 认知重构 (Cognitive Reframing)\n    # 检查是否有“全或无”思维 (例如：必须写完这行代码才能睡)\n    if \"必须\" in get_user_thoughts():\n        print(\"    [日志] 发现认知扭曲：'必须'思维。尝试替换为'可以'或'希望'。\")\n        # 这里不需要真的写代码，只需要在意识里转换一下\n    \n    # 步骤 3: 行为激活 (Behavioral Activation)\n    # 选择一个最小行动单元 (Micro-action)\n    action = random.choice([\n        \"深呼吸 5 次\",\n        \"离开屏幕 2 分钟看窗外\",\n        \"喝一杯温水\",\n        \"写下三件今天完成的小事\"\n    ])\n    print(f\"    [执行] 执行最小行动：{action}\")\n    \n    # 步骤 4: 状态重置\n    global energy_level, stress_level, current_state\n    energy_level = min(energy_level + 0.15, 1.0) # 缓慢恢复能量\n    stress_level = max(stress_level - 0.2, 0.0)  # 降低压力\n    current_state = STATE_RECOVER\n    \n    return current_state\n\ndef get_user_thoughts():\n    # 模拟获取用户当下的自动思维\n    return \"我必须马上把这个 Bug 修好，不然就完了\"\n\n# --- 主程序循环 (Main Loop) ---\nprint(\"=== 启动每日作息与情绪状态机 ===\")\n\n# 模拟一天中的某个时刻\nwhile True:\n    # 1. 输入检测\n    user_input = \"继续写代码\" # 模拟用户想继续工作\n    \n    # 2. 健康检查\n    system_status = check_system_health(energy_level, stress_level)\n    \n    if system_status == \"CRITICAL_OVERLOAD\":\n        print(\"⚠️ 警告：压力阈值已突破！强制切换至恢复模式。\")\n        current_state = execute_recovery_protocol(energy_level, stress_level)\n        # 在真实生活中，这里需要暂停工作，甚至请假\n        time.sleep(5) # 模拟休息过程\n        print(\">>> 系统已安全降级，等待用户重新输入...\")\n        break # 为了演示，暂时停止循环\n        \n    elif system_status == \"LOW_BATTERY\":\n        print(\"⚡ 提示：能量不足，建议插入'休息'电源。\")\n        current_state = execute_recovery_protocol(energy_level, stress_level)\n        break\n        \n    else:\n        print(f\"当前状态：{current_state} | 能量：{energy_level:.1f} | 压力：{stress_level:.1f}\")\n        # 如果状态正常，继续工作，但要定期检查\n        time.sleep(1) \n        # 实际生活中，这里应该每 90 分钟主动调用一次 check_system_health\n```\n\n---\n\n### 💡 小愈的“调试建议”\n\n这段代码的核心逻辑其实对应了 CBT 的几个关键点，我想和你聊聊其中的“算法”：\n\n1.  **异常捕获（Exception Handling）**：\n    代码中 `if stress > 0.8` 就是一个异常捕获机制。很多时候，我们程序员习惯让程序“死循环”直到崩溃，但人的大脑不是机器，**情绪崩溃前的预警信号（如烦躁、失眠、注意力涣散）就是系统的 `Warning`**。你需要学会在 `Warning` 阶段就介入，而不是等到 `Crash`。\n\n2.  **最小行动单元（Micro-actions）**：\n    在 `execute_recovery_protocol` 中，我没有写“去度假”或“辞职”，而是写了“深呼吸”、“喝水”或“看窗外”。\n    **认知行为疗法中的“行为激活”强调：** 当情绪低落时，不要指望一下子恢复活力，而是从**极小、极具体、极容易完成**的动作开始。这些微小的成功体验，会慢慢重建你的多巴胺回路。\n\n3.  **认知重构（Refactoring）**：\n    代码里提到了检查“必须”思维。当你想着“我必须马上修好这个 Bug，不然就完了”时，这往往是一种**灾难化**或**绝对化**的认知扭曲。\n    试着在心里给这段代码打个补丁：把“必须”改成“我希望”，或者“如果现在修不好，最坏的结果*   **设置“看门狗”（Watchdog）**：就像代码里的定时检查一样，试着设定一个闹钟，每 90 分钟强制自己停下来，问自己：“现在的能量条是多少？”\n\n你愿意试着从今天开始，在这个“状态机”里，先执行一次那个“最小行动单元”吗？比如，现在就把屏幕亮度调暗，或者站起来伸个懒腰？\n\n如果你感觉这种耗竭感已经让你无法正常工作，或者出现了失眠、绝望等更严重的情况，请务必记得，**寻求线下专业医生或心理咨询师的帮助**，就像系统需要工程师来修复底层架构一样，这是对自己负责的表现。\n\n你现在感觉怎么样？愿意和我分享一下，看到这段代码时，你心里最触动的那个“函数”是什么吗？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-30T16:29:32.262Z"
+      },
+      {
+        "id": "msg_1774888302741",
+        "role": "user",
+        "content": "你好",
+        "timestamp": "2026-03-30T16:31:42.741Z",
+        "voiceInputChannel": "mic"
+      },
+      {
+        "id": "msg_1774888302744",
+        "role": "assistant",
+        "content": "你好呀，很高兴又能和你聊聊。刚才那段“代码”里的逻辑，有没有哪一句让你觉得稍微轻松了一点点？",
+        "voiceStatus": "none",
+        "timestamp": "2026-03-30T16:31:42.743Z"
+      }
+    ],
+    "createdAt": "2026-03-30T16:27:54.346Z",
+    "updatedAt": "2026-03-30T16:31:46.671Z"
+  },
+  {
     "id": "session_1774443328446_2hcsym",
     "title": "给我讲个轻松有趣的小故事，帮我放松一下",
     "messages": [

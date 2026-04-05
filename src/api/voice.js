@@ -2,15 +2,11 @@ import { BASE_URL } from './config'
 import { getToken } from '../utils/storage'
 
 /**
- * STT 路径约定（避免实时链路与整段 HTTP 混用）：
+ * 语音相关 HTTP/WS 工具。
  *
- * 1. **实时麦克风听写**：优先 `WebSocket /ws/stt`（{@link createSttStreamClient}）。
- *    连接或上游失败时，由业务层（如 `useSpeech`）降级到浏览器 `Web Speech API`，而非改打 HTTP。
- * 2. **HTTP `POST /api/voice/stt`（{@link transcribeShortAudio}）**：仅用于**短音频整段**转写，
- *    场景如离线补转写、回放片段、文件导入等；**不要**与实时 WS 并行混作「第二套实时链路」。
- *
- * @see createSttStreamClient
- * @see transcribeShortAudio
+ * - 实时麦克风：`composables/useSpeech` 在 **backend** 模式下使用 {@link createSttStreamClient}（`/ws/stt`）；
+ *   **browser** 模式下使用 Web Speech API（不经此文件）。
+ * - {@link transcribeShortAudio}：`POST /api/voice/stt` 短音频整段转写。
  */
 
 /**

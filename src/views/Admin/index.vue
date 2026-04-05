@@ -1,8 +1,13 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Delete, EditPen } from '@element-plus/icons-vue'
-import { getAdminUsersApi, updateMentalStatusApi, deleteAdminUserApi } from '../../api/user'
+import { Refresh, Delete, EditPen, Key } from '@element-plus/icons-vue'
+import {
+  getAdminUsersApi,
+  updateMentalStatusApi,
+  deleteAdminUserApi,
+  resetAdminUserPasswordApi
+} from '../../api/user'
 import { fetchAdminUserLatestAssessment } from '../../api/assessment'
 import avatarBoy from '../../assets/images/avatar-boy.svg'
 import avatarGirl from '../../assets/images/avatar-girl.svg'
@@ -182,10 +187,36 @@ async function handleDeleteUser(user) {
   }
 }
 
-// 密码显隐控制（每行独立）
-const passwordVisibleMap = ref({})
-function togglePasswordVisible(userId) {
-  passwordVisibleMap.value[userId] = !passwordVisibleMap.value[userId]
+async function handleResetPassword(user) {
+  try {
+    await ElMessageBox.confirm(
+      `将为「${user.nickname || user.username}」生成新的临时登录密码，旧密码立即失效。\n请通过安全渠道交给用户，并提示其登录后在「个人中心」修改密码。`,
+      '重置登录密码',
+      {
+        type: 'warning',
+        confirmButtonText: '生成并重置',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const res = await resetAdminUserPasswordApi(user.id)
+    const temporaryPassword = res?.data?.temporaryPassword
+    if (!temporaryPassword || typeof temporaryPassword !== 'string') {
+      throw new Error('服务端未返回临时密码')
+    }
+    await ElMessageBox.alert(
+      `临时密码（仅此弹窗展示一次，服务端不会再次提供）：\n\n${temporaryPassword}`,
+      '请立即复制保存',
+      { confirmButtonText: '我已保存', type: 'success' }
+    )
+    ElMessage.success('密码已重置')
+  } catch (error) {
+    ElMessage.error(error.message || '重置失败')
+  }
 }
 
 onMounted(() => {
@@ -241,24 +272,18 @@ onMounted(() => {
 
         <el-table-column label="昵称" prop="nickname" min-width="100" />
 
-        <el-table-column label="密码" min-width="200">
+        <el-table-column label="登录安全" min-width="200">
           <template #default="{ row }">
             <div class="password-cell">
-              <template v-if="passwordVisibleMap[row.id]">
-                <span v-if="row.displayPassword" class="password-text">
-                  {{ row.displayPassword }}
-                </span>
-                <span v-else class="password-na">（历史账号，无记录）</span>
-              </template>
-              <span v-else class="password-text">••••••••</span>
-
+              <span class="password-hint">口令仅存哈希，不可查看</span>
               <el-button
-                :type="passwordVisibleMap[row.id] ? 'warning' : 'primary'"
+                type="warning"
                 size="small"
                 link
-                @click="togglePasswordVisible(row.id)"
+                :icon="Key"
+                @click="handleResetPassword(row)"
               >
-                {{ passwordVisibleMap[row.id] ? '隐藏' : '查看' }}
+                重置临时密码
               </el-button>
             </div>
           </template>
@@ -294,7 +319,7 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="140" align="center" fixed="right">
+        <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
               type="primary"
@@ -424,20 +449,15 @@ onMounted(() => {
 
 .password-cell {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
-.password-text {
-  font-family: monospace;
-  color: #374151;
-  letter-spacing: 1px;
-}
-
-.password-na {
-  color: #9ca3af;
+.password-hint {
   font-size: 12px;
-  font-style: italic;
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .note-text {

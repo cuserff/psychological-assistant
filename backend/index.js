@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const dotenv = require('dotenv');
 const WebSocket = require('ws');
+const { createRtasrSttSession } = require('./sttRtasrSession');
 
 dotenv.config();
 
@@ -107,6 +108,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CHATS_DIR = path.join(DATA_DIR, 'chats');
 const CHECKINS_DIR = path.join(DATA_DIR, 'checkins');
 const ASSESSMENTS_DIR = path.join(DATA_DIR, 'assessments');
+const DIARIES_DIR = path.join(DATA_DIR, 'diaries');
 /** 聊天配图持久化目录：uploads/chat/{userId}/文件名 */
 const CHAT_UPLOAD_ROOT = path.join(DATA_DIR, 'uploads', 'chat');
 
@@ -121,6 +123,9 @@ if (!fs.existsSync(CHECKINS_DIR)) {
 }
 if (!fs.existsSync(ASSESSMENTS_DIR)) {
   fs.mkdirSync(ASSESSMENTS_DIR, { recursive: true });
+}
+if (!fs.existsSync(DIARIES_DIR)) {
+  fs.mkdirSync(DIARIES_DIR, { recursive: true });
 }
 if (!fs.existsSync(CHAT_UPLOAD_ROOT)) {
   fs.mkdirSync(CHAT_UPLOAD_ROOT, { recursive: true });
@@ -228,7 +233,23 @@ function readUsers() {
 }
 
 function writeUsers(users) {
+  for (const userItem of users) {
+    if (userItem && Object.prototype.hasOwnProperty.call(userItem, 'displayPassword')) {
+      delete userItem.displayPassword;
+    }
+  }
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+}
+
+/** 生成管理员重置用临时口令（仅出现在单次接口响应中，绝不写入磁盘） */
+function generateTemporaryPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const randomBytes = crypto.randomBytes(14);
+  let result = '';
+  for (let index = 0; index < 14; index += 1) {
+    result += alphabet[randomBytes[index] % alphabet.length];
+  }
+  return result;
 }
 
 // 读取指定用户的聊天记录，文件不存在则返回空数组
@@ -270,8 +291,49 @@ function writeUserAssessments(userId, records) {
   fs.writeFileSync(filePath, JSON.stringify(records, null, 2), 'utf-8');
 }
 
+// ==================== 日记（按用户 JSON 持久化） ====================
+
+/** 读取指定用户的日记列表，文件不存在则返回 [] */
+function readUserDiaries(userId) {
+  const filePath = path.join(DIARIES_DIR, `${userId}.json`);
+  if (!fs.existsSync(filePath)) return [];
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+/** 全量写入用户日记 */
+function writeUserDiaries(userId, entries) {
+  const filePath = path.join(DIARIES_DIR, `${userId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+}
+
+function defaultDiaryTitleForUser() {
+  return `${getTodayLocalDate()} 对话日记`;
+}
+
+/** 列表预览：单行约 120 字 */
+function buildDiaryPreviewText(fullContent) {
+  const raw = String(fullContent || '').replace(/\s+/g, ' ').trim();
+  if (raw.length <= 120) return raw;
+  return `${raw.slice(0, 117)}…`;
+}
+
+const DIARY_MAX_CONTENT_LEN = 10000;
+const DIARY_MAX_TITLE_LEN = 80;
+
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+}
+
+function migrateRemoveDisplayPasswordFromDisk() {
+  const users = readUsers();
+  let changed = false;
+  for (const userItem of users) {
+    if (userItem && Object.prototype.hasOwnProperty.call(userItem, 'displayPassword')) {
+      delete userItem.displayPassword;
+      changed = true;
+    }
+  }
+  if (changed) writeUsers(users);
 }
 
 function getTodayLocalDate() {
@@ -666,6 +728,75 @@ function buildXunfeiIatWsUrl(appId, apiKey, apiSecret) {
   const query = new URLSearchParams({ authorization, date, host });
   return `wss://${host}${wsPath}?${query.toString()}`;
 }
+
+/**
+ * 讯飞「实时语音转写标准版」WebSocket：仅需 APPID + APIKey（HMAC-SHA1 签名，不需 APISecret）
+ * @see https://www.xfyun.cn/doc/asr/rtasr/API.html
+ */
+function buildXunfeiRtasrWsUrl(appId, apiKey) {
+  const ts = Math.floor(Date.now() / 1000);
+  const baseString = `${String(appId)}${ts}`;
+  const md5Hex = crypto.createHash('md5').update(baseString, 'utf8').digest('hex');
+  const signa = crypto.createHmac('sha1', String(apiKey)).update(md5Hex).digest('base64');
+  const params = new URLSearchParams({
+    appid: String(appId),
+    ts: String(ts),
+    signa
+  });
+  const rtasrLang = process.env.XUNFEI_RTASR_LANG;
+  if (rtasrLang && String(rtasrLang).trim()) {
+    params.set('lang', String(rtasrLang).trim());
+  }
+  const rtasrPd = process.env.XUNFEI_RTASR_PD;
+  if (rtasrPd && String(rtasrPd).trim()) {
+    params.set('pd', String(rtasrPd).trim());
+  }
+  return `wss://rtasr.xfyun.cn/v1/ws?${params.toString()}`;
+}
+
+/**
+ * 从 RTASR 单条 result 的 data JSON 中取当前识别文本
+ * @param {Record<string, unknown>} inner
+ * @returns {string}
+ */
+function collectRtasrTextFromInner(inner) {
+  if (!inner || typeof inner !== 'object') return '';
+  const rtList = inner.cn?.st?.rt;
+  if (!Array.isArray(rtList)) return '';
+  const parts = [];
+  for (const rtItem of rtList) {
+    if (!rtItem || !Array.isArray(rtItem.ws)) continue;
+    for (const wsItem of rtItem.ws) {
+      if (!wsItem || !Array.isArray(wsItem.cw)) continue;
+      for (const cwItem of wsItem.cw) {
+        if (cwItem != null && cwItem.w != null && String(cwItem.w) !== '') {
+          parts.push(String(cwItem.w));
+        }
+      }
+    }
+  }
+  return parts.join('');
+}
+
+/** /ws/stt：STT_PROVIDER=xunfei-rtasr-ws 时使用讯飞实时语音转写标准版（非 IAT） */
+const rtasrSttSessionCtx = {
+  WebSocket,
+  recordServerError,
+  recordServerLatencySample,
+  appId: XUNFEI_RTASR_APP_ID,
+  apiKey: XUNFEI_RTASR_API_KEY,
+  buildRtasrUrl: () =>
+    buildXunfeiRtasrWsUrl(XUNFEI_RTASR_APP_ID, XUNFEI_RTASR_API_KEY),
+  collectTextFromInner: collectRtasrTextFromInner,
+  STT_WS_IDLE_TIMEOUT_MS,
+  STT_WS_UPSTREAM_CONNECT_MS,
+  STT_WS_UPSTREAM_SESSION_MS,
+  STT_WS_STOP_WAIT_MS,
+  STT_WS_PCM_FRAME_BYTES,
+  STT_WS_MAX_AUDIO_MSG_PER_SEC,
+  STT_WS_MAX_CLIENT_CHUNK_BYTES,
+  STT_WS_MAX_SESSION_INGEST_BYTES
+};
 
 function iatPcmFormatString() {
   return `audio/L16;rate=${XUNFEI_STT_SAMPLE_RATE}`;
@@ -1178,14 +1309,13 @@ function sanitizeUser(user) {
   };
 }
 
-// 管理员视角用户字段（含明文密码和心理状态）
+// 管理员视角用户字段（绝不返回任何口令或展示用密码明文）
 function adminSanitizeUser(user) {
   return {
     id: user.id,
     username: user.username,
     nickname: user.nickname,
     role: user.role,
-    displayPassword: user.displayPassword || '',
     mentalHealthStatus: user.mentalHealthStatus || '未评估',
     mentalHealthNote: user.mentalHealthNote || '',
     createdAt: user.createdAt
@@ -1207,7 +1337,6 @@ function initAdminAccount() {
     nickname: '系统管理员',
     password: hashPassword(adminPassword, salt),
     salt,
-    displayPassword: adminPassword,
     avatar: '',
     role: 'admin',
     mentalHealthStatus: '未评估',
@@ -1217,25 +1346,14 @@ function initAdminAccount() {
 
   users.unshift(adminUser);
   writeUsers(users);
-  console.log('已创建默认管理员账号：admin / admin123');
+  console.log(
+    '已创建默认管理员账号 admin（开发环境默认哈希对应口令见 initAdminAccount 内变量，生产环境请尽快重置）'
+  );
 }
 
 initAdminAccount();
 
-// 为历史注册用户补写缺失的 displayPassword 字段标记
-function migrateDisplayPassword() {
-  const users = readUsers();
-  let changed = false;
-  users.forEach(user => {
-    if (user.displayPassword === undefined) {
-      user.displayPassword = '';
-      changed = true;
-    }
-  });
-  if (changed) writeUsers(users);
-}
-
-migrateDisplayPassword();
+migrateRemoveDisplayPasswordFromDisk();
 
 // ==================== 鉴权中间件 ====================
 
@@ -1291,7 +1409,6 @@ app.post('/api/user/register', (req, res) => {
     nickname: nickname || username,
     password: hashPassword(password, salt),
     salt,
-    displayPassword: password,
     avatar: '',
     role: 'user',
     mentalHealthStatus: '未评估',
@@ -1385,7 +1502,6 @@ app.put('/api/user/password', authMiddleware, (req, res) => {
   const newSalt = crypto.randomBytes(16).toString('hex');
   users[userIndex].salt = newSalt;
   users[userIndex].password = hashPassword(newPassword, newSalt);
-  users[userIndex].displayPassword = newPassword;
   writeUsers(users);
 
   res.json({ code: 200, message: '密码修改成功' });
@@ -1423,6 +1539,31 @@ app.put('/api/admin/users/:userId/mental-status', adminMiddleware, (req, res) =>
   writeUsers(users);
 
   res.json({ code: 200, message: '心理状态更新成功', data: adminSanitizeUser(users[userIndex]) });
+});
+
+/**
+ * 管理员重置用户登录密码：生成随机临时口令，仅在响体内返回一次，不持久化明文
+ * POST /api/admin/users/:userId/reset-password
+ */
+app.post('/api/admin/users/:userId/reset-password', adminMiddleware, (req, res) => {
+  const { userId } = req.params;
+  const users = readUsers();
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex === -1) {
+    return res.status(404).json({ code: 404, message: '用户不存在' });
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  const newSalt = crypto.randomBytes(16).toString('hex');
+  users[userIndex].salt = newSalt;
+  users[userIndex].password = hashPassword(temporaryPassword, newSalt);
+  writeUsers(users);
+
+  res.json({
+    code: 200,
+    message: '密码已重置，请将临时口令当面或安全渠道交给用户，并提示其登录后立即修改',
+    data: { temporaryPassword }
+  });
 });
 
 // 删除用户（管理员）
@@ -1552,6 +1693,224 @@ app.delete('/api/chat/sessions/:sessionId', authMiddleware, (req, res) => {
 
   writeUserChats(req.user.id, filtered);
   res.json({ code: 200, message: '会话已删除' });
+});
+
+// ==================== 日记接口 ====================
+
+// 对话实录 → LLM 结构化摘要（心情关键词 / 核心事件 / 寄语 / 心情曲线）
+app.post('/api/diary/summarize', authMiddleware, async (req, res) => {
+  if (!API_KEY) {
+    return res.status(500).json({ code: 500, message: '未配置 XUNFEI_API_KEY，无法生成摘要' });
+  }
+  let transcript = String(req.body?.transcript || '').trim();
+  if (!transcript) {
+    return res.status(400).json({ code: 400, message: 'transcript 不能为空' });
+  }
+  if (transcript.length > DIARY_SUMMARY_TRANSCRIPT_MAX) {
+    transcript = `${transcript.slice(0, DIARY_SUMMARY_TRANSCRIPT_MAX)}\n…（前端已截断）`;
+  }
+  const systemPrompt =
+    '你是心理咨询助手后台。根据用户与 AI「小愈」的对话实录，输出**仅一段合法 JSON**（不要 markdown 代码围栏），键名必须完全一致：\n'
+    + '{"moodKeywords":["3～8个中文心情关键词"],"coreEvents":"1～3句第三人称客观概括用户提到的核心事件与困扰","aiEncouragement":"2～4句以小愈口吻写的温暖鼓励（勿复述长对话）","moodCurve":[{"label":"简短阶段名","score":5}]}\n'
+    + 'moodCurve：按对话时间顺序 5～12 个点；score 为 1～10 的整数，表示用户情绪积极程度（越高越正向、平稳）。label 用简短中文如「开场」「倾诉」「深入」「收尾」。不要输出其它字段。';
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `对话实录：\n${transcript}` }
+  ];
+  try {
+    const raw = await maasChatCompletionNonStream(messages, {
+      max_tokens: 1100,
+      temperature: 0.35
+    });
+    const parsed = extractJsonObjectFromModelText(raw);
+    if (!parsed) {
+      recordServerError('llm', 'diary_summary_parse');
+      return res.status(502).json({ code: 502, message: '模型返回无法解析为 JSON' });
+    }
+    const data = normalizeDiarySummaryPayload(parsed);
+    res.json({ code: 200, message: 'ok', data });
+  } catch (error) {
+    recordServerError('llm', 'diary_summary_failed');
+    return res.status(502).json({
+      code: 502,
+      message: `摘要生成失败：${error?.message || '上游错误'}`
+    });
+  }
+});
+
+// 获取当前用户日记列表（分页 + 关键词）
+app.get('/api/diary/entries', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const keywordRaw = req.query.keyword != null ? String(req.query.keyword).trim() : '';
+  const pageNum = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+  const pageSizeRaw = parseInt(String(req.query.pageSize || '20'), 10) || 20;
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+
+  let list = readUserDiaries(userId);
+  if (!Array.isArray(list)) list = [];
+
+  list = [...list].sort((entryA, entryB) => {
+    const timeA = new Date(entryA.updatedAt || entryA.createdAt || 0).getTime();
+    const timeB = new Date(entryB.updatedAt || entryB.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
+
+  if (keywordRaw) {
+    const keywordLower = keywordRaw.toLowerCase();
+    list = list.filter((entry) => {
+      const title = String(entry.title || '').toLowerCase();
+      const content = String(entry.content || '').toLowerCase();
+      const core = String(entry.coreEvents || '').toLowerCase();
+      const keys = Array.isArray(entry.moodKeywords)
+        ? entry.moodKeywords.join(' ').toLowerCase()
+        : '';
+      return (
+        title.includes(keywordLower)
+        || content.includes(keywordLower)
+        || core.includes(keywordLower)
+        || keys.includes(keywordLower)
+      );
+    });
+  }
+
+  const total = list.length;
+  const start = (pageNum - 1) * pageSize;
+  const pageSlice = list.slice(start, start + pageSize);
+
+  const listPayload = pageSlice.map((entry) => ({
+    id: entry.id,
+    title: entry.title,
+    preview: buildDiaryPreviewText(entry.coreEvents || entry.content),
+    source: entry.source,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    moodKeywords: Array.isArray(entry.moodKeywords) ? entry.moodKeywords.slice(0, 8) : []
+  }));
+
+  res.json({
+    code: 200,
+    message: '获取成功',
+    data: { total, list: listPayload }
+  });
+});
+
+// 创建日记（可选结构化字段：心情关键词 / 核心事件 / 寄语 / 心情曲线）
+app.post('/api/diary/entries', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  let { title, content, source, moodKeywords, coreEvents, aiEncouragement, moodCurve } = req.body || {};
+
+  if (typeof content !== 'string' || !content.trim()) {
+    return res.status(400).json({ code: 400, message: '正文不能为空' });
+  }
+  content = content.trim();
+  if (content.length > DIARY_MAX_CONTENT_LEN) {
+    return res.status(400).json({
+      code: 400,
+      message: `正文长度不能超过 ${DIARY_MAX_CONTENT_LEN} 字`
+    });
+  }
+
+  if (typeof title !== 'string') title = '';
+  title = title.trim();
+  if (!title) title = defaultDiaryTitleForUser();
+  if (title.length > DIARY_MAX_TITLE_LEN) {
+    return res.status(400).json({
+      code: 400,
+      message: `标题不能超过 ${DIARY_MAX_TITLE_LEN} 字`
+    });
+  }
+
+  const sourceNormalized = source === 'voice' ? 'voice' : 'chat';
+  const nowIso = new Date().toISOString();
+
+  const metaNorm = normalizeDiarySummaryPayload({
+    moodKeywords,
+    coreEvents,
+    aiEncouragement,
+    moodCurve
+  });
+
+  const newEntry = {
+    id: crypto.randomUUID(),
+    userId,
+    title,
+    content,
+    source: sourceNormalized,
+    createdAt: nowIso,
+    updatedAt: nowIso
+  };
+  if (metaNorm.moodKeywords.length > 0) {
+    newEntry.moodKeywords = metaNorm.moodKeywords;
+  }
+  if (metaNorm.coreEvents) newEntry.coreEvents = metaNorm.coreEvents;
+  if (metaNorm.aiEncouragement) newEntry.aiEncouragement = metaNorm.aiEncouragement;
+  if (metaNorm.moodCurve.points.length > 0) {
+    newEntry.moodCurve = metaNorm.moodCurve;
+  }
+
+  const entries = readUserDiaries(userId);
+  const safeEntries = Array.isArray(entries) ? entries : [];
+  safeEntries.unshift(newEntry);
+  writeUserDiaries(userId, safeEntries);
+
+  res.json({
+    code: 200,
+    message: '创建成功',
+    data: {
+      id: newEntry.id,
+      title: newEntry.title,
+      content: newEntry.content,
+      source: newEntry.source,
+      createdAt: newEntry.createdAt,
+      updatedAt: newEntry.updatedAt,
+      moodKeywords: newEntry.moodKeywords,
+      coreEvents: newEntry.coreEvents,
+      aiEncouragement: newEntry.aiEncouragement,
+      moodCurve: newEntry.moodCurve
+    }
+  });
+});
+
+// 单条详情
+app.get('/api/diary/entries/:id', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const entries = readUserDiaries(userId);
+  const list = Array.isArray(entries) ? entries : [];
+  const found = list.find((entry) => entry.id === id);
+  if (!found) {
+    return res.status(404).json({ code: 404, message: '日记不存在' });
+  }
+  res.json({
+    code: 200,
+    message: '获取成功',
+    data: {
+      id: found.id,
+      title: found.title,
+      content: found.content,
+      source: found.source,
+      createdAt: found.createdAt,
+      updatedAt: found.updatedAt,
+      moodKeywords: found.moodKeywords,
+      coreEvents: found.coreEvents,
+      aiEncouragement: found.aiEncouragement,
+      moodCurve: found.moodCurve
+    }
+  });
+});
+
+// 删除日记
+app.delete('/api/diary/entries/:id', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const entries = readUserDiaries(userId);
+  const list = Array.isArray(entries) ? entries : [];
+  const filtered = list.filter((entry) => entry.id !== id);
+  if (filtered.length === list.length) {
+    return res.status(404).json({ code: 404, message: '日记不存在' });
+  }
+  writeUserDiaries(userId, filtered);
+  res.json({ code: 200, message: '删除成功' });
 });
 
 // ==================== 情绪打卡接口 ====================
@@ -1763,8 +2122,8 @@ app.delete('/api/assessment/:id', authMiddleware, (req, res) => {
 // ==================== AI 对话接口 ====================
 
 app.post('/api/chat', authMiddleware, (req, res) => {
-  const { messages } = req.body;
-  handleStreamRequest(messages, res);
+  const { messages, max_tokens: bodyMaxTokens, temperature: bodyTemperature } = req.body || {};
+  handleStreamRequest(messages, res, { max_tokens: bodyMaxTokens, temperature: bodyTemperature });
 });
 
 // ==================== 语音（STT/TTS）接口 ====================
@@ -1785,13 +2144,29 @@ app.post('/api/voice/stt', authMiddleware, (req, res, next) => {
     next();
   });
 }, async (req, res) => {
-  if (STT_PROVIDER !== 'xunfei-iat-ws') {
+  const hasFullIatCreds =
+    Boolean(XUNFEI_STT_APP_ID) &&
+    Boolean(XUNFEI_STT_API_KEY) &&
+    Boolean(XUNFEI_STT_API_SECRET);
+
+  if (STT_PROVIDER === 'xunfei-rtasr-ws') {
+    if (!hasFullIatCreds) {
+      return res.status(503).json({
+        code: 503,
+        message:
+          '当前 STT_PROVIDER=xunfei-rtasr-ws 仅对「实时转写」WebSocket（/ws/stt）使用讯飞实时语音转写。'
+          + '短音频上传（本接口）仍依赖讯飞「语音听写」三要素：请在 .env 配置 '
+          + 'XUNFEI_STT_APP_ID、XUNFEI_STT_API_KEY、XUNFEI_STT_API_SECRET；'
+          + '或若只需短转写，可将 STT_PROVIDER 设为 xunfei-iat-ws。'
+      });
+    }
+  } else if (STT_PROVIDER !== 'xunfei-iat-ws') {
     return res.status(500).json({
       code: 500,
-      message: '当前仅支持 STT_PROVIDER=xunfei-iat-ws（讯飞语音听写流式版 WebSocket）'
+      message:
+        '不支持的 STT_PROVIDER：短音频转写仅支持 xunfei-iat-ws，或与 xunfei-rtasr-ws 并存时需提供完整听写密钥'
     });
-  }
-  if (!XUNFEI_STT_APP_ID || !XUNFEI_STT_API_KEY || !XUNFEI_STT_API_SECRET) {
+  } else if (!hasFullIatCreds) {
     return res.status(500).json({
       code: 500,
       message:
@@ -2127,7 +2502,148 @@ function analyzePsychSafetyRisk(text) {
   return { riskLevel: 'none', hitRules: [], safeReplyMode: false };
 }
 
-function handleStreamRequest(messages, res) {
+/**
+ * @param {unknown} value
+ * @param {number} min
+ * @param {number} max
+ * @param {number} fallback
+ */
+function clampOptionalNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+/**
+ * 讯飞 MaaS 非流式补全（用于日记摘要等短输出）
+ * @param {unknown[]} messages
+ * @param {{ max_tokens?: number, temperature?: number }} [options]
+ * @returns {Promise<string>} assistant 文本
+ */
+function maasChatCompletionNonStream(messages, options = {}) {
+  return new Promise((resolve, reject) => {
+    if (!API_KEY) {
+      reject(new Error('未配置 XUNFEI_API_KEY'));
+      return;
+    }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      reject(new Error('messages 不能为空'));
+      return;
+    }
+    const maxTokens = clampOptionalNumber(options.max_tokens, 32, 8192, 1024);
+    const temperature = clampOptionalNumber(options.temperature, 0, 2, 0.35);
+    const requestBody = {
+      model: MAAS_MODEL,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+      stream: false
+    };
+    const reqOptions = {
+      hostname: MAAS_HOST,
+      port: 443,
+      path: MAAS_PATH,
+      method: 'POST',
+      timeout: 55000,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${API_KEY}`,
+        'User-Agent': 'Node.js-Client',
+        Accept: '*/*'
+      }
+    };
+    const maasReq = https.request(reqOptions, (maasRes) => {
+      const chunks = [];
+      maasRes.on('data', (chunk) => chunks.push(chunk));
+      maasRes.on('end', () => {
+        const rawText = Buffer.concat(chunks).toString('utf-8');
+        if (maasRes.statusCode < 200 || maasRes.statusCode >= 300) {
+          reject(new Error(rawText || `HTTP ${maasRes.statusCode}`));
+          return;
+        }
+        let parsedBody;
+        try {
+          parsedBody = JSON.parse(rawText);
+        } catch {
+          reject(new Error('MaaS 返回非 JSON'));
+          return;
+        }
+        const content = parsedBody.choices?.[0]?.message?.content;
+        if (typeof content !== 'string') {
+          reject(new Error('MaaS 响应缺少 choices[0].message.content'));
+          return;
+        }
+        resolve(content.trim());
+      });
+    });
+    maasReq.on('error', (error) => reject(error));
+    maasReq.on('timeout', () => {
+      maasReq.destroy();
+      reject(new Error('MaaS 请求超时'));
+    });
+    maasReq.write(JSON.stringify(requestBody));
+    maasReq.end();
+  });
+}
+
+/** 从模型输出中抠 JSON 对象 */
+function extractJsonObjectFromModelText(text) {
+  const trimmed = String(text || '').trim();
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fence ? fence[1].trim() : trimmed;
+  const firstBrace = candidate.indexOf('{');
+  const lastBrace = candidate.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace <= firstBrace) return null;
+  try {
+    return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDiarySummaryPayload(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      moodKeywords: [],
+      coreEvents: '',
+      aiEncouragement: '',
+      moodCurve: { points: [] }
+    };
+  }
+  const moodKeywords = Array.isArray(raw.moodKeywords)
+    ? raw.moodKeywords
+      .map((keyword) => String(keyword || '').trim().slice(0, 20))
+      .filter(Boolean)
+      .slice(0, 10)
+    : [];
+  const coreEvents = String(raw.coreEvents || '').trim().slice(0, 900);
+  const aiEncouragement = String(raw.aiEncouragement || '').trim().slice(0, 600);
+  /** @type {{ label: string, score: number }[]} */
+  let points = [];
+  const mc = raw.moodCurve;
+  if (Array.isArray(mc)) {
+    points = mc.map((pointItem, index) => {
+      const label = String(pointItem?.label || `阶段${index + 1}`).slice(0, 32);
+      let score = parseInt(String(pointItem?.score), 10);
+      if (!Number.isFinite(score)) score = 5;
+      score = Math.min(10, Math.max(1, score));
+      return { label, score };
+    }).slice(0, 24);
+  } else if (mc && typeof mc === 'object' && Array.isArray(mc.points)) {
+    points = mc.points.map((pointItem, index) => {
+      const label = String(pointItem?.label || `阶段${index + 1}`).slice(0, 32);
+      let score = parseInt(String(pointItem?.score), 10);
+      if (!Number.isFinite(score)) score = 5;
+      score = Math.min(10, Math.max(1, score));
+      return { label, score };
+    }).slice(0, 24);
+  }
+  return { moodKeywords, coreEvents, aiEncouragement, moodCurve: { points } };
+}
+
+const DIARY_SUMMARY_TRANSCRIPT_MAX = 14000;
+
+function handleStreamRequest(messages, res, streamOptions = {}) {
   if (!API_KEY) {
     res.status(500).json({ code: 500, message: '未配置 XUNFEI_API_KEY，请在 backend/.env 中设置' });
     return;
@@ -2139,11 +2655,14 @@ function handleStreamRequest(messages, res) {
 
   const safetyPayload = analyzePsychSafetyRisk(extractLastUserPlainTextForSafety(messages));
 
+  const maxTokens = clampOptionalNumber(streamOptions.max_tokens, 16, 8192, 4000);
+  const temperature = clampOptionalNumber(streamOptions.temperature, 0, 2, 0.7);
+
   const requestBody = {
     model: MAAS_MODEL,
     messages,
-    max_tokens: 4000,
-    temperature: 0.7,
+    max_tokens: maxTokens,
+    temperature,
     stream: true
   };
 
@@ -2241,7 +2760,7 @@ app.get('/health', (req, res) => {
 
 const server = http.createServer(app);
 
-// ==================== STT WebSocket（实时转写：讯飞 IAT 流式 /ws/stt） ====================
+// ==================== STT WebSocket（实时转写：讯飞 IAT 或 RTASR /ws/stt） ====================
 // 客户端 JSON 协议：start → audio（可多次）→ stop；服务端统一回包见 README。
 const wss = new WebSocket.Server({ server, path: '/ws/stt' });
 
@@ -2293,7 +2812,7 @@ wss.on('connection', (client, req) => {
 
   safeSendSttClient(client, { type: 'ready' });
 
-  /** @type {ReturnType<typeof createSttRealtimeSession>|null} */
+  /** @type {ReturnType<typeof createSttRealtimeSession>|ReturnType<typeof createRtasrSttSession>|null} */
   let sttSession = null;
 
   client.on('message', async (raw) => {
@@ -2322,7 +2841,20 @@ wss.on('connection', (client, req) => {
         });
         return;
       }
-      sttSession = createSttRealtimeSession(client);
+      if (STT_PROVIDER === 'xunfei-rtasr-ws') {
+        sttSession = createRtasrSttSession(client, rtasrSttSessionCtx);
+      } else if (STT_PROVIDER === 'xunfei-iat-ws') {
+        sttSession = createSttRealtimeSession(client);
+      } else {
+        recordServerError('wsStt', 'stt_provider_unsupported');
+        safeSendSttClient(client, {
+          type: 'error',
+          code: 'stt_provider_unsupported',
+          message:
+            `不支持的 STT_PROVIDER=${String(STT_PROVIDER)}，请使用 xunfei-iat-ws（语音听写）或 xunfei-rtasr-ws（实时语音转写）`
+        });
+        return;
+      }
       try {
         await sttSession.start();
       } catch {

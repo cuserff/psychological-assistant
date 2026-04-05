@@ -304,6 +304,24 @@ export const useChatStore = defineStore('chat', () => {
    * 流式结束后的收尾操作：若 assistant 回复为空则填入错误提示，然后持久化
    * @param {number} msgIndex 消息索引
    */
+  /**
+   * 覆写指定助手消息全文（用于语音通话后处理截断等；会立即持久化）
+   * @param {number} msgIndex
+   * @param {string} content
+   */
+  function setAssistantMessageContent(msgIndex, content) {
+    const session = activeSession.value
+    if (!session || msgIndex < 0) return
+    const msg = session.messages[msgIndex]
+    if (!msg || msg.role !== 'assistant') return
+    session.messages[msgIndex] = {
+      ...msg,
+      content: String(content ?? '')
+    }
+    session.updatedAt = new Date().toISOString()
+    saveSessions()
+  }
+
   function finalizeReply(msgIndex, { aborted = false } = {}) {
     const session = activeSession.value
     if (!session || msgIndex < 0) return
@@ -399,6 +417,7 @@ export const useChatStore = defineStore('chat', () => {
     createAssistantPlaceholder,
     appendAssistantDelta,
     setAssistantVoiceStatus,
+    setAssistantMessageContent,
     finalizeReply,
     // 取消生成（Stop 按钮）
     setCurrentAbortController,

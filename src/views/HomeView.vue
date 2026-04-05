@@ -261,8 +261,8 @@ onMounted(async () => {
 }
 
 .hero-left {
-  background: #ffffff;
-  border: 1px solid #ebeef5;
+  background: var(--app-color-bg-elevated, #fff);
+  border: 1px solid var(--app-color-border, #ebeef5);
   border-radius: 18px;
   padding: 18px;
 }
@@ -270,7 +270,7 @@ onMounted(async () => {
 .hero-title {
   font-size: 20px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--app-color-text, #0f172a);
 }
 
 .hero-greeting {
@@ -284,7 +284,7 @@ onMounted(async () => {
 .hero-subtitle {
   margin-top: 8px;
   font-size: 14px;
-  color: #64748b;
+  color: var(--app-color-text-secondary, #64748b);
   line-height: 1.7;
 }
 
@@ -299,8 +299,8 @@ onMounted(async () => {
 .illustration-card {
   border-radius: 18px;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--app-color-border, #e2e8f0);
+  background: var(--app-color-bg-elevated, #fff);
 }
 
 .illustration {
@@ -309,9 +309,14 @@ onMounted(async () => {
   height: auto;
 }
 
+/* 暗黑模式下插画偏亮，整体压一点亮度以贴合背景 */
+html.dark .illustration-card .illustration {
+  filter: brightness(0.78) saturate(0.92);
+}
+
 .illustration-caption {
   padding: 10px 14px 14px;
-  color: #475569;
+  color: var(--app-color-text-secondary, #475569);
   font-size: 13px;
   font-weight: 600;
 }
@@ -324,7 +329,7 @@ onMounted(async () => {
 .section-title {
   font-size: 15px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--app-color-text, #0f172a);
   margin-bottom: 12px;
 }
 
@@ -339,8 +344,8 @@ onMounted(async () => {
   padding: 18px;
   cursor: pointer;
   user-select: none;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--app-color-border);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-color-text) 7%, transparent);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   position: relative;
   overflow: hidden;
@@ -349,7 +354,7 @@ onMounted(async () => {
 
 .action-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 18px 32px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 18px 32px color-mix(in srgb, var(--app-color-text) 12%, transparent);
 }
 
 .card-icon {
@@ -361,13 +366,13 @@ onMounted(async () => {
   margin-top: 12px;
   font-size: 18px;
   font-weight: 900;
-  color: #0f172a;
+  color: var(--app-color-text);
 }
 
 .card-desc {
   margin-top: 8px;
   font-size: 13px;
-  color: rgba(15, 23, 42, 0.72);
+  color: var(--app-color-text-secondary);
   line-height: 1.7;
 }
 
@@ -375,19 +380,35 @@ onMounted(async () => {
   margin-top: 14px;
   font-size: 13px;
   font-weight: 800;
-  color: rgba(15, 23, 42, 0.7);
+  color: var(--app-color-text-muted);
 }
 
+/* 渐变以「表面色」为终点，深浅色主题自动协调 */
 .card-chat {
-  background: linear-gradient(135deg, #e0f2fe 0%, #ecfeff 60%, #ffffff 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-color-primary) 16%, var(--app-color-bg-elevated)) 0%,
+    color-mix(in srgb, #38bdf8 10%, var(--app-color-bg-elevated)) 55%,
+    var(--app-color-bg-elevated) 100%
+  );
 }
 
 .card-assessment {
-  background: linear-gradient(135deg, #fef3c7 0%, #fff7ed 60%, #ffffff 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #f59e0b 14%, var(--app-color-bg-elevated)) 0%,
+    color-mix(in srgb, #fb923c 8%, var(--app-color-bg-elevated)) 55%,
+    var(--app-color-bg-elevated) 100%
+  );
 }
 
 .card-report {
-  background: linear-gradient(135deg, #ede9fe 0%, #fdf2f8 60%, #ffffff 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #a78bfa 14%, var(--app-color-bg-elevated)) 0%,
+    color-mix(in srgb, #f472b6 8%, var(--app-color-bg-elevated)) 55%,
+    var(--app-color-bg-elevated) 100%
+  );
 }
 
 /* ==================== 动态内容 ==================== */
@@ -404,7 +425,18 @@ onMounted(async () => {
 .card-head {
   font-size: 14px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--app-color-text);
+}
+
+/* class 在 el-card 根节点上，用组件变量对齐全局 token */
+.quote-card {
+  --el-card-bg-color: var(--app-color-bg-elevated);
+  --el-card-border-color: var(--app-color-border);
+  color: var(--app-color-text);
+}
+
+.quote-card :deep(.el-card__header) {
+  background-color: transparent;
 }
 
 .quote-card :deep(.el-card__body) {
@@ -414,7 +446,7 @@ onMounted(async () => {
 .quote-text {
   font-size: 18px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--app-color-text);
   line-height: 1.7;
   letter-spacing: 0.2px;
 }
@@ -422,7 +454,17 @@ onMounted(async () => {
 .quote-sub {
   margin-top: 10px;
   font-size: 13px;
-  color: #64748b;
+  color: var(--app-color-text-secondary);
+}
+
+.activity-card {
+  --el-card-bg-color: var(--app-color-bg-elevated);
+  --el-card-border-color: var(--app-color-border);
+  color: var(--app-color-text);
+}
+
+.activity-card :deep(.el-card__header) {
+  background-color: transparent;
 }
 
 .activity-card :deep(.el-card__body) {
@@ -434,9 +476,9 @@ onMounted(async () => {
   gap: 10px;
   align-items: flex-start;
   padding: 10px 10px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--app-color-border);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--app-color-fill-muted);
   margin-bottom: 10px;
 }
 
@@ -458,7 +500,7 @@ onMounted(async () => {
 
 .activity-text {
   font-size: 13px;
-  color: #334155;
+  color: var(--app-color-text-secondary);
   line-height: 1.7;
 }
 

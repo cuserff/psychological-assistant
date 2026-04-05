@@ -50,3 +50,11 @@ export function deleteAdminUserApi(userId) {
     method: 'DELETE'
   })
 }
+
+/** 管理员重置用户密码：响应内 data.temporaryPassword 仅出现一次，不落库 */
+export function resetAdminUserPasswordApi(userId) {
+  return request(`/api/admin/users/${userId}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
+}

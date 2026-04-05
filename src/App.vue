@@ -221,8 +221,11 @@ onMounted(async () => {
   if (userStore.token) {
     try {
       await userStore.fetchUserInfo()
-    } catch {
-      router.push('/login')
+    } catch (error) {
+      // 仅在 token 无效（已被 fetchUserInfo 清除）时跳登录；后端不可达时保留本地状态
+      if (!userStore.token) {
+        router.push('/login')
+      }
     }
   }
 })

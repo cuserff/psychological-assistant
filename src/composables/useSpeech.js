@@ -1,10 +1,9 @@
 /**
- * 语音识别路径（与 `api/voice.js` 顶部约定一致）：
- *
- * - **实时**：`getMode()==='backend'` → 仅走 `WebSocket /ws/stt`（createSttStreamClient）；失败时由对话页等降级到 **browser**（Web Speech），不改为 HTTP。
- * - **HTTP `/api/voice/stt`**：仅 `transcribeShortAudio` 用于短音频整段；本组合式内**不调用**，避免与实时 WS 混作第二套在线链路。
+ * 语音识别（双路径）：
+ * - **backend**：`WebSocket /ws/stt` + 麦克风 PCM（服务端讯飞 IAT 或 RTASR）
+ * - **browser**：`SpeechRecognition` / `webkitSpeechRecognition`，`continuous` + `interimResults`
+ * 实时文案统一写入 **currentSubtitle**（`transcript` 为同一 ref）。
  */
-// 语音识别：browser = Web Speech API；backend = WebSocket /ws/stt + PCM 分片（与讯飞 raw 一致）
 import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { createSttStreamClient } from '../api/voice'
 import {
@@ -15,20 +14,16 @@ import {
   recordErrorCode
 } from '../utils/chatObservability'
 
-/** 分片发送周期（毫秒），介于 200～400 之间 */
 const STT_STREAM_CHUNK_MS = 280
-
-/** 能量低于此 RMS（[-1,1] 浮点）视为静音帧，不向上游送 PCM（环境极静时可酌情略调低） */
 const VAD_RMS_THRESHOLD = 0.012
-/** 已检测到过语音帧后，累计静音达到此时长（与分片周期同步递增）则自动结束本轮听写 */
 const VAD_SILENCE_END_MS = 1400
 
 /**
  * @param {Object} [options]
- * @param {() => 'browser'|'backend'} [options.getMode] 当前模式，由父组件 props 决定
- * @param {() => void} [options.beforeStartListening] 每一轮开始录音前调用（如：打断 LLM/TTS/上轮 STT，避免串音）
- * @param {(detail: { text: string, durationMs: number, safety: object }) => void} [options.onBackendTranscribeResult] 本轮定稿后回调（流式暂无服务端 safety 时传占位）
- * @param {(recognizing: boolean) => void} [options.onRecognizingChange] 识别收尾阶段（已停录、等待 final）
+ * @param {() => 'browser'|'backend'} [options.getMode]
+ * @param {() => void} [options.beforeStartListening]
+ * @param {(detail: { text: string, durationMs: number, safety: object }) => void} [options.onBackendTranscribeResult]
+ * @param {(recognizing: boolean) => void} [options.onRecognizingChange]
  */
 export function useSpeech(options = {}) {
   const getMode =
@@ -64,22 +59,22 @@ export function useSpeech(options = {}) {
           && navigator.mediaDevices
           && typeof navigator.mediaDevices.getUserMedia === 'function'
           && typeof WebSocket !== 'undefined'
-          && (typeof AudioContext !== 'undefined' || typeof window.webkitAudioContext !== 'undefined')
+          && (typeof AudioContext !== 'undefined'
+            || typeof window.webkitAudioContext !== 'undefined')
       )
     }
     return Boolean(SpeechRecognition)
   })
 
   const isListening = ref(false)
-  /** 已停止录音、仍等待 STT 返回 final（用于会话状态机 recognizing） */
   const isRecognizing = ref(false)
-  const transcript = ref('')
+  const currentSubtitle = ref('')
+  /** @type {import('vue').Ref<{ code: string, message: string }|null>} */
+  const error = ref(null)
 
   watch(isRecognizing, (value) => {
     onRecognizingChange?.(value)
   })
-  /** @type {import('vue').Ref<{ code: string, message: string }|null>} */
-  const error = ref(null)
 
   let recognition = null
 
@@ -94,7 +89,6 @@ export function useSpeech(options = {}) {
   /** @type {ReturnType<typeof setInterval>|null} */
   let streamFlushTimerId = null
 
-  /** 后端 WS：简约 VAD 状态（每轮开录重置） */
   let vadSilenceAccumMs = 0
   let vadHasHeardSpeechFrame = false
 
@@ -103,10 +97,6 @@ export function useSpeech(options = {}) {
     vadHasHeardSpeechFrame = false
   }
 
-  /**
-   * @param {Float32Array} samples
-   * @returns {number}
-   */
   function computeFloat32Rms(samples) {
     if (!samples || samples.length === 0) return 0
     let sumSquares = 0
@@ -161,8 +151,8 @@ export function useSpeech(options = {}) {
           interimText += result[0].transcript
         }
       }
-      transcript.value = finalText + interimText
-      maybeRecordSttFirstTextLatency(transcript.value)
+      currentSubtitle.value = finalText + interimText
+      maybeRecordSttFirstTextLatency(currentSubtitle.value)
     }
 
     recognition.onerror = (event) => {
@@ -175,7 +165,7 @@ export function useSpeech(options = {}) {
     }
 
     recognition.onend = () => {
-      maybeRecordSttFinalLatency(transcript.value)
+      maybeRecordSttFinalLatency(currentSubtitle.value)
       resetSttUtteranceMark()
       isListening.value = false
       isRecognizing.value = false
@@ -228,11 +218,6 @@ export function useSpeech(options = {}) {
     }
   }
 
-  /**
-   * @param {Float32Array} inputBuffer
-   * @param {number} inputSampleRate
-   * @param {number} outputSampleRate
-   */
   function downsampleBuffer(inputBuffer, inputSampleRate, outputSampleRate) {
     if (inputSampleRate === outputSampleRate) return inputBuffer
     const sampleRateRatio = inputSampleRate / outputSampleRate
@@ -268,9 +253,6 @@ export function useSpeech(options = {}) {
     return output
   }
 
-  /**
-   * 关停可能残留的 WS STT 客户端，避免快速连点麦克风时旧连接与新连接竞态
-   */
   async function shutdownExistingStreamClient() {
     const existingClient = takeStreamClientForForcedShutdown()
     if (!existingClient) return
@@ -289,7 +271,6 @@ export function useSpeech(options = {}) {
     }
   }
 
-  /** @returns {ReturnType<typeof createSttStreamClient>|null} */
   function takeStreamClientForForcedShutdown() {
     const existingClient = streamClient
     if (!existingClient) return null
@@ -366,7 +347,7 @@ export function useSpeech(options = {}) {
 
       isListening.value = false
 
-      const textAfter = String(transcript.value || '').trim()
+      const textAfter = String(currentSubtitle.value || '').trim()
       if (!textAfter && !error.value) {
         setError('stt-empty', mapSpeechErrorToMessage('stt-empty'))
       }
@@ -375,10 +356,6 @@ export function useSpeech(options = {}) {
     }
   }
 
-  /**
-   * 将队列中已采集的 PCM 下采样为 16k 并推送到 WS（固定周期调用）。
-   * 先做 RMS 门限：静音块丢弃（不上送）；说话结束后持续静音则自动 stopBackendListening。
-   */
   function flushPcmToStream() {
     if (!streamClient || streamClient.getState() !== 'started') return
     const contextSnapshot = audioContext
@@ -422,7 +399,7 @@ export function useSpeech(options = {}) {
     resetPcmChunks()
     resetVadState()
     clearError()
-    transcript.value = ''
+    currentSubtitle.value = ''
 
     if (typeof WebSocket === 'undefined') {
       recordErrorCode('stt', 'start-failed')
@@ -432,15 +409,15 @@ export function useSpeech(options = {}) {
 
     streamClient = createSttStreamClient({
       onPartial: (text) => {
-        transcript.value = text
+        currentSubtitle.value = text
         maybeRecordSttFirstTextLatency(text)
       },
       onFinal: (text) => {
-        transcript.value = String(text || '').trim()
-        maybeRecordSttFinalLatency(transcript.value)
+        currentSubtitle.value = String(text || '').trim()
+        maybeRecordSttFinalLatency(currentSubtitle.value)
         resetSttUtteranceMark()
         onBackendTranscribeResult?.({
-          text: transcript.value,
+          text: currentSubtitle.value,
           durationMs: 0,
           safety: { riskLevel: 'none', hitRules: [], safeReplyMode: false }
         })
@@ -463,9 +440,7 @@ export function useSpeech(options = {}) {
         isListening.value = false
         isRecognizing.value = false
       },
-      onStateChange: () => {
-        // 预留 UI 状态；当前仅靠 isListening / transcript / error
-      }
+      onStateChange: () => {}
     })
 
     try {
@@ -549,7 +524,7 @@ export function useSpeech(options = {}) {
     runBeforeStartListening()
     if (!recognition || isListening.value) return
     clearError()
-    transcript.value = ''
+    currentSubtitle.value = ''
     try {
       recognition.start()
       isListening.value = true
@@ -612,7 +587,8 @@ export function useSpeech(options = {}) {
     isSupported,
     isListening,
     isRecognizing,
-    transcript,
+    currentSubtitle,
+    transcript: currentSubtitle,
     error,
     clearError,
     startListening,

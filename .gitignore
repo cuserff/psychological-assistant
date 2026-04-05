@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+# Windows 保留设备名：误在项目根目录生成时会导致 git add 失败，勿提交
+/nul
+
+# 本地备忘文件/目录「修改要点」，不提交到 Git（若曾被跟踪需先 git rm --cached）
+/修改要点
 
 # Editor directories and files
 .vscode/*
